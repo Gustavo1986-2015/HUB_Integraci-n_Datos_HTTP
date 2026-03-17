@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hub Satelital — Dashboard</title>
+<style>
+  :root {
+    --fondo: #0f1117;
+    --superficie: #1a1d27;
+    --superficie2: #22263a;
+    --borde: #2d3149;
+    --acento: #4f7cff;
+    --acento2: #7c4fff;
+    --verde: #22c55e;
+    --rojo: #ef4444;
+    --amarillo: #eab308;
+    --texto: #e2e8f0;
+    --apagado: #64748b;
+    --radio: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--fondo); color: var(--texto); min-height: 100vh; }
+
+  /* Encabezado */
+  header {
+    background: var(--superficie);
+    border-bottom: 1px solid var(--borde);
+    padding: 16px 32px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 10;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icono {
+    width: 38px; height: 38px;
+    background: linear-gradient(135deg, var(--acento), var(--acento2));
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .logo h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+  .logo p { font-size: 12px; color: var(--apagado); margin-top: 1px; }
+  .encabezado-derecha { display: flex; align-items: center; gap: 16px; }
+  .indicador-vivo { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--verde); font-weight: 600; }
+  .punto-vivo { width: 8px; height: 8px; background: var(--verde); border-radius: 50%; animation: pulso 2s infinite; }
+  @keyframes pulso { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.8); } }
+  #ultima-actualizacion { font-size: 12px; color: var(--apagado); }
+
+  /* Banner modo prueba */
+  #banner-modo-prueba {
+    display: none;
+    padding: 4px 12px;
+    background: rgba(234,179,8,0.15);
+    border: 1px solid var(--amarillo);
+    border-radius: 6px;
+    font-size: 12px; font-weight: 700; color: var(--amarillo);
+  }
+
+  /* Layout */
+  main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+  section { margin-bottom: 32px; }
+  section > h2 {
+    font-size: 13px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--apagado); margin-bottom: 14px;
+  }
+
+  /* Tarjetas KPI */
+  .grilla-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+  .tarjeta-kpi {
+    background: var(--superficie); border: 1px solid var(--borde);
+    border-radius: var(--radio); padding: 20px 22px; position: relative; overflow: hidden;
+  }
+  .tarjeta-kpi::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--acento), var(--acento2));
+  }
+  .tarjeta-kpi.verde::before { background: var(--verde); }
+  .tarjeta-kpi.rojo::before { background: var(--rojo); }
+  .tarjeta-kpi .etiqueta { font-size: 12px; color: var(--apagado); font-weight: 500; margin-bottom: 8px; }
+  .tarjeta-kpi .valor { font-size: 32px; font-weight: 800; letter-spacing: -1px; line-height: 1; }
+  .tarjeta-kpi .sub { font-size: 12px; color: var(--apagado); margin-top: 6px; }
+
+  /* Tarjetas de destinos */
+  .grilla-destinos { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .tarjeta-destino { background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); padding: 22px; }
+  .encabezado-destino { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .nombre-destino { font-size: 16px; font-weight: 700; }
+  .clave-destino { font-size: 11px; color: var(--apagado); font-family: monospace; }
+  .etiqueta-estado { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+  .estado-activo { background: rgba(34,197,94,0.15); color: var(--verde); }
+  .estado-inactivo { background: rgba(100,116,139,0.15); color: var(--apagado); }
+  .estado-error { background: rgba(239,68,68,0.15); color: var(--rojo); }
+  .estadisticas-destino { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+  .stat-destino .val { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .stat-destino .lbl { font-size: 11px; color: var(--apagado); margin-top: 2px; }
+  .val.verde { color: var(--verde); }
+  .val.rojo { color: var(--rojo); }
+  .barra-progreso { height: 6px; background: var(--superficie2); border-radius: 3px; overflow: hidden; margin-bottom: 12px; }
+  .relleno-barra { height: 100%; border-radius: 3px; transition: width 0.6s ease; background: linear-gradient(90deg, var(--verde), #16a34a); }
+  .relleno-barra.advertencia { background: linear-gradient(90deg, var(--amarillo), #ca8a04); }
+  .relleno-barra.error { background: linear-gradient(90deg, var(--rojo), #dc2626); }
+  .meta-destino { font-size: 11px; color: var(--apagado); }
+  .meta-destino span { display: block; margin-bottom: 4px; }
+  .caja-error { margin-top: 10px; padding: 10px 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; font-size: 11px; color: var(--rojo); font-family: monospace; word-break: break-all; display: none; }
+
+  /* Tabla de proveedores */
+  .contenedor-tabla { background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--apagado); background: var(--superficie2); border-bottom: 1px solid var(--borde); }
+  tbody tr { border-bottom: 1px solid var(--borde); transition: background 0.15s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--superficie2); }
+  td { padding: 12px 16px; font-size: 13px; }
+  td.mono { font-family: monospace; font-size: 12px; }
+  .etiqueta-placa { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: monospace; background: rgba(79,124,255,0.15); color: var(--acento); margin-right: 4px; margin-bottom: 2px; }
+  .sin-datos { padding: 40px; text-align: center; color: var(--apagado); font-size: 13px; }
+
+  /* Log de actividad */
+  .log-actividad { background: var(--superficie); border: 1px solid var(--borde); border-radius: var(--radio); overflow: hidden; max-height: 400px; overflow-y: auto; }
+  .fila-log { display: grid; grid-template-columns: 160px 90px 130px 1fr 70px; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--borde); font-size: 12px; transition: background 0.15s; }
+  .fila-log:last-child { border-bottom: none; }
+  .fila-log:hover { background: var(--superficie2); }
+  .fila-log .ts { color: var(--apagado); font-family: monospace; font-size: 11px; }
+  .fila-log .prov { font-weight: 600; }
+  .nivel-log { padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; text-align: center; }
+  .nivel-info { background: rgba(79,124,255,0.15); color: var(--acento); }
+  .nivel-advertencia { background: rgba(234,179,8,0.15); color: var(--amarillo); }
+  .nivel-error { background: rgba(239,68,68,0.15); color: var(--rojo); }
+  .encabezado-log { display: grid; grid-template-columns: 160px 90px 130px 1fr 70px; gap: 12px; padding: 10px 16px; background: var(--superficie2); border-bottom: 1px solid var(--borde); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--apagado); position: sticky; top: 0; }
+
+  @media (max-width: 768px) {
+    main { padding: 16px; }
+    header { padding: 14px 16px; }
+    .fila-log { grid-template-columns: 1fr; gap: 4px; }
+    .encabezado-log { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icono">🛰</div>
+    <div>
+      <h1>Hub de Integración Satelital</h1>
+      <p>Panel de Monitoreo</p>
+    </div>
+  </div>
+  <div class="encabezado-derecha">
+    <div id="banner-modo-prueba">⚠ MODO PRUEBA — Sin envíos reales</div>
+    <div class="indicador-vivo"><div class="punto-vivo"></div> EN VIVO</div>
+    <span id="ultima-actualizacion">Cargando...</span>
+  </div>
+</header>
+
+<main>
+
+  <section>
+    <h2>Resumen General</h2>
+    <div class="grilla-kpi">
+      <div class="tarjeta-kpi">
+        <div class="etiqueta">Tiempo activo</div>
+        <div class="valor" id="kpi-tiempo-activo">—</div>
+        <div class="sub" id="kpi-iniciado-en">Iniciado —</div>
+      </div>
+      <div class="tarjeta-kpi">
+        <div class="etiqueta">Total ingestados</div>
+        <div class="valor" id="kpi-ingestados">0</div>
+        <div class="sub">pulsos recibidos</div>
+      </div>
+      <div class="tarjeta-kpi verde">
+        <div class="etiqueta">Despachados OK</div>
+        <div class="valor" id="kpi-ok" style="color:var(--verde)">0</div>
+        <div class="sub">registros exitosos</div>
+      </div>
+      <div class="tarjeta-kpi rojo">
+        <div class="etiqueta">Fallos de despacho</div>
+        <div class="valor" id="kpi-fallidos" style="color:var(--rojo)">0</div>
+        <div class="sub">registros con error</div>
+      </div>
+      <div class="tarjeta-kpi">
+        <div class="etiqueta">Proveedores activos</div>
+        <div class="valor" id="kpi-proveedores">0</div>
+        <div class="sub">fuentes de datos</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Estado de Destinos</h2>
+    <div class="grilla-destinos" id="grilla-destinos">
+      <div class="tarjeta-destino"><div style="text-align:center;padding:30px;color:var(--apagado)">Cargando...</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Proveedores AVL</h2>
+    <div class="contenedor-tabla">
+      <table>
+        <thead>
+          <tr>
+            <th>Proveedor</th>
+            <th>Recibidos</th>
+            <th>Normalizados</th>
+            <th>Fallidos</th>
+            <th>Última actividad</th>
+            <th>Placas recientes</th>
+          </tr>
+        </thead>
+        <tbody id="cuerpo-proveedores">
+          <tr><td colspan="6" class="sin-datos">Sin actividad de proveedores aún</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Log de Actividad Reciente</h2>
+    <div class="log-actividad">
+      <div class="encabezado-log">
+        <span>Fecha y Hora</span>
+        <span>Nivel</span>
+        <span>Proveedor</span>
+        <span>Mensaje</span>
+        <span>Registros</span>
+      </div>
+      <div id="cuerpo-actividad">
+        <div class="sin-datos">Sin actividad registrada aún</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// =========================================================================
+// Dashboard — Lógica de actualización en tiempo real
+// Consulta /metricas cada 5 segundos y actualiza la interfaz
+// =========================================================================
+
+const INTERVALO_ACTUALIZACION = 5000; // milisegundos
+
+function formatearFecha(ts) {
+  if (!ts) return '—';
+  try {
+    const d = new Date(ts.replace('Z', '+00:00'));
+    return d.toLocaleString('es-AR', {
+      month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  } catch { return ts; }
+}
+
+function formatearNumero(n) {
+  return (n || 0).toLocaleString('es-AR');
+}
+
+// ── Actualizar KPIs del hub ──────────────────────────────────────────────
+function actualizarHub(hub) {
+  document.getElementById('kpi-tiempo-activo').textContent = hub.tiempo_activo || '—';
+  document.getElementById('kpi-iniciado-en').textContent = 'Iniciado ' + formatearFecha(hub.iniciado_en);
+  document.getElementById('kpi-ingestados').textContent = formatearNumero(hub.total_ingestados);
+  document.getElementById('kpi-ok').textContent = formatearNumero(hub.total_despachados_ok);
+  document.getElementById('kpi-fallidos').textContent = formatearNumero(hub.total_despachados_fallidos);
+}
+
+// ── Actualizar tarjetas de destinos ─────────────────────────────────────
+function actualizarDestinos(destinos, destinosActivos) {
+  const grilla = document.getElementById('grilla-destinos');
+  if (!destinos || destinos.length === 0) {
+    grilla.innerHTML = '<div class="tarjeta-destino"><div class="sin-datos">Sin destinos configurados</div></div>';
+    return;
+  }
+
+  grilla.innerHTML = destinos.map(d => {
+    const tasa = d.tasa_exito || 0;
+    const activo = destinosActivos && destinosActivos[d.clave];
+    const conError = d.ultimo_envio_fallido && (!d.ultimo_envio_ok ||
+      new Date(d.ultimo_envio_fallido) > new Date(d.ultimo_envio_ok));
+
+    let claseEstado = activo ? (conError ? 'estado-error' : 'estado-activo') : 'estado-inactivo';
+    let textoEstado = activo ? (conError ? 'CON ERRORES' : 'ACTIVO') : 'INACTIVO';
+    let claseBarrra = tasa >= 90 ? '' : tasa >= 70 ? 'advertencia' : 'error';
+
+    return `
+      <div class="tarjeta-destino">
+        <div class="encabezado-destino">
+          <div>
+            <div class="nombre-destino">${d.nombre}</div>
+            <div class="clave-destino">${d.clave}</div>
+          </div>
+          <span class="etiqueta-estado ${claseEstado}">${textoEstado}</span>
+        </div>
+        <div class="estadisticas-destino">
+          <div class="stat-destino"><div class="val verde">${formatearNumero(d.total_enviados)}</div><div class="lbl">Enviados OK</div></div>
+          <div class="stat-destino"><div class="val ${d.total_fallidos > 0 ? 'rojo' : ''}">${formatearNumero(d.total_fallidos)}</div><div class="lbl">Fallidos</div></div>
+          <div class="stat-destino"><div class="val">${d.total_bloques_ok}</div><div class="lbl">Bloques OK</div></div>
+          <div class="stat-destino"><div class="val ${d.total_bloques_fallidos > 0 ? 'rojo' : ''}">${d.total_bloques_fallidos}</div><div class="lbl">Bloques fallidos</div></div>
+        </div>
+        <div class="barra-progreso"><div class="relleno-barra ${claseBarrra}" style="width:${tasa}%"></div></div>
+        <div class="meta-destino">
+          <span>Tasa de éxito: <strong>${tasa}%</strong></span>
+          <span>Último OK: ${formatearFecha(d.ultimo_envio_ok)}</span>
+          <span>Último fallo: ${formatearFecha(d.ultimo_envio_fallido)}</span>
+        </div>
+        ${d.ultimo_error ? `<div class="caja-error" style="display:block">Último error: ${d.ultimo_error}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Actualizar tabla de proveedores ─────────────────────────────────────
+function actualizarProveedores(proveedores) {
+  const cuerpo = document.getElementById('cuerpo-proveedores');
+  document.getElementById('kpi-proveedores').textContent = proveedores.length;
+
+  if (!proveedores || proveedores.length === 0) {
+    cuerpo.innerHTML = '<tr><td colspan="6" class="sin-datos">Sin proveedores activos aún</td></tr>';
+    return;
+  }
+
+  cuerpo.innerHTML = proveedores.map(p => {
+    const placas = (p.placas_recientes || [])
+      .map(pl => `<span class="etiqueta-placa">${pl}</span>`).join('') || '<span style="color:var(--apagado)">—</span>';
+    const colorFallo = p.total_fallidos_normalizacion > 0 ? 'color:var(--rojo)' : '';
+    return `
+      <tr>
+        <td><strong>${p.nombre}</strong></td>
+        <td class="mono">${formatearNumero(p.total_recibidos)}</td>
+        <td class="mono" style="color:var(--verde)">${formatearNumero(p.total_normalizados)}</td>
+        <td class="mono" style="${colorFallo}">${formatearNumero(p.total_fallidos_normalizacion)}</td>
+        <td class="mono" style="color:var(--apagado)">${formatearFecha(p.ultima_vez_visto)}</td>
+        <td>${placas}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ── Actualizar log de actividad ──────────────────────────────────────────
+function actualizarActividad(entradas) {
+  const cuerpo = document.getElementById('cuerpo-actividad');
+  if (!entradas || entradas.length === 0) {
+    cuerpo.innerHTML = '<div class="sin-datos">Sin actividad registrada aún</div>';
+    return;
+  }
+
+  cuerpo.innerHTML = entradas.slice(0, 50).map(e => `
+    <div class="fila-log">
+      <span class="ts">${formatearFecha(e.timestamp)}</span>
+      <span class="nivel-log nivel-${e.nivel}">${e.nivel}</span>
+      <span class="prov">${e.proveedor}</span>
+      <span>${e.mensaje}</span>
+      <span style="text-align:right;color:var(--apagado)">${e.cantidad_registros > 0 ? formatearNumero(e.cantidad_registros) : ''}</span>
+    </div>
+  `).join('');
+}
+
+// ── Ciclo de actualización ────────────────────────────────────────────────
+async function actualizar() {
+  try {
+    const respuesta = await fetch('/metricas');
+    if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+    const datos = await respuesta.json();
+
+    actualizarHub(datos.hub);
+    actualizarDestinos(datos.destinos, datos.destinos_activos);
+    actualizarProveedores(datos.proveedores);
+    actualizarActividad(datos.actividad);
+
+    // Mostrar banner si está en modo prueba
+    const banner = document.getElementById('banner-modo-prueba');
+    if (banner) banner.style.display = datos.modo_prueba ? 'block' : 'none';
+
+    const ahora = new Date().toLocaleTimeString('es-AR');
+    document.getElementById('ultima-actualizacion').textContent = `Actualizado: ${ahora}`;
+
+  } catch (error) {
+    document.getElementById('ultima-actualizacion').textContent = `Error: ${error.message}`;
+    console.error('Error al actualizar dashboard:', error);
+  }
+}
+
+// Ejecutar al cargar y luego cada 5 segundos
+actualizar();
+setInterval(actualizar, INTERVALO_ACTUALIZACION);
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+# =============================================================================
+# Hub de Integración Satelital — .gitignore
+# =============================================================================
+
+# ── Credenciales y configuración local ───────────────────────────────────────
+# NUNCA subir el .env real al repositorio — contiene credenciales sensibles
+.env
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# ── Entorno virtual (si alguien lo crea) ─────────────────────────────────────
+venv/
+env/
+.venv/
+.env/
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ── Sistema operativo ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+
+# ── Carpeta vieja (no debe subirse) ───────────────────────────────────────────
+ingestores (API)/
