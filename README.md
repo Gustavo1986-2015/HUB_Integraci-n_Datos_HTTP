@@ -5,37 +5,33 @@ Recibe o consulta pulsos GPS de prestadores AVL, los normaliza y los envía a Re
 ## Arranque rápido
 
 ```bash
-# 1. Instalar dependencias
 pip install -r requirements.txt
-
-# 2. Crear configuración
-cp .env.example .env
-
-# 3. Levantar servidor
 uvicorn main:app --reload --port 8000
 ```
 
-El Hub queda disponible en:
-- Dashboard: http://localhost:8000/dashboard
-- Documentación: http://localhost:8000/docs
-- Estado: http://localhost:8000/estado
+Disponible en:
+- **Dashboard:**      http://localhost:8000/dashboard
+- **Configuración:**  http://localhost:8000/configuracion
+- **Estado:**         http://localhost:8000/estado
 
 ## Estructura
 
 ```
-├── main.py                        # Punto de entrada
-├── core/config.py                 # Configuración y variables de entorno
+├── main.py                          # Punto de entrada
+├── core/config.py                   # Configuración y variables de entorno
 ├── services/
-│   ├── estandarizador.py          # Normalización de datos → RegistroAVL
-│   ├── metricas.py                # Métricas en tiempo real
-│   ├── planificador.py            # Ejecuta ingestores activos
-│   ├── dashboard.html             # Panel de monitoreo
+│   ├── estandarizador.py            # Normalización → RegistroAVL
+│   ├── metricas.py                  # Métricas en tiempo real
+│   ├── planificador.py              # Ejecuta ingestores activos
+│   ├── logger_archivo.py            # Logs JSON diarios en /logs
+│   ├── dashboard.html               # Panel de monitoreo
+│   ├── configuracion.html           # UI de configuración
 │   ├── despachadores/
-│   │   ├── cliente_rc.py          # Envío a Recurso Confiable (SOAP)
-│   │   └── cliente_simon.py       # Envío a Simon 4.0 (REST)
+│   │   ├── cliente_rc.py            # → Recurso Confiable (SOAP)
+│   │   └── cliente_simon.py         # → Simon 4.0 (REST/JSON)
 │   └── ingestores/
-│       ├── base.py                # Contrato base para ingestores
-│       └── control_group.py       # Consulta al Gateway de Control Group
+│       ├── base.py                  # Contrato base
+│       └── control_group.py         # Control Group Gateway
 ```
 
 ## Modos de operación
@@ -48,19 +44,19 @@ Content-Type: application/json
 
 **Activo** — nosotros consultamos la API del prestador:
 ```
-Activar en .env: CONTROL_GROUP_ENABLED=true
-El Hub consulta automáticamente cada N segundos
+CONTROL_GROUP_ENABLED=true  →  consulta automática cada N segundos
 ```
 
-## Variables principales
+## Variables principales (.env)
 
 | Variable | Descripción |
 |---|---|
 | `DRY_RUN=true` | Modo prueba — sin envíos reales |
-| `CONTROL_GROUP_ENABLED=true` | Activar ingestor Control Group |
 | `SEND_TO_RECURSO_CONFIABLE=true` | Activar destino RC |
 | `SEND_TO_SIMON=true` | Activar destino Simon 4.0 |
+| `CONTROL_GROUP_ENABLED=true` | Activar ingestor Control Group |
 | `DESTINOS_CONTROL_GROUP=simon` | A qué destino van los datos de CG |
+| `LOG_RETENTION_HOURS=48` | Horas que se conservan los logs |
 
 Ver `.env.example` para la lista completa.
 

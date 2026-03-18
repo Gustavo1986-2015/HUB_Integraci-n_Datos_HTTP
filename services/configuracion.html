@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hub Satelital — Configuración</title>
+<style>
+  :root {
+    --fondo: #0f1117;
+    --superficie: #1a1d27;
+    --superficie2: #22263a;
+    --borde: #2d3149;
+    --acento: #4f7cff;
+    --verde: #22c55e;
+    --rojo: #ef4444;
+    --amarillo: #eab308;
+    --texto: #e2e8f0;
+    --apagado: #64748b;
+    --radio: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--fondo); color: var(--texto); min-height: 100vh; }
+
+  /* ── Header ── */
+  header {
+    background: var(--superficie); border-bottom: 1px solid var(--borde);
+    padding: 16px 32px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0; z-index: 10;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icono {
+    width: 38px; height: 38px;
+    background: linear-gradient(135deg, #4f7cff, #7c4fff);
+    border-radius: 10px; display: flex; align-items: center;
+    justify-content: center; font-size: 18px;
+  }
+  .logo h1 { font-size: 18px; font-weight: 700; }
+  .logo p { font-size: 12px; color: var(--apagado); margin-top: 1px; }
+  .nav-links { display: flex; gap: 8px; }
+  .nav-link {
+    padding: 8px 16px; border-radius: 8px; font-size: 13px;
+    font-weight: 500; text-decoration: none; color: var(--apagado);
+    transition: all 0.15s;
+  }
+  .nav-link:hover { background: var(--superficie2); color: var(--texto); }
+  .nav-link.activo { background: rgba(79,124,255,0.15); color: var(--acento); }
+
+  /* ── Layout ── */
+  main { max-width: 900px; margin: 0 auto; padding: 32px; }
+
+  /* ── Alertas ── */
+  .alerta {
+    display: none; padding: 14px 18px; border-radius: var(--radio);
+    font-size: 14px; font-weight: 500; margin-bottom: 24px;
+    align-items: center; gap: 10px;
+  }
+  .alerta.visible { display: flex; }
+  .alerta.exito { background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.3); color: var(--verde); }
+  .alerta.error { background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: var(--rojo); }
+  .alerta.info { background: rgba(79,124,255,0.12); border: 1px solid rgba(79,124,255,0.3); color: var(--acento); }
+
+  /* ── Secciones ── */
+  .seccion {
+    background: var(--superficie); border: 1px solid var(--borde);
+    border-radius: var(--radio); margin-bottom: 24px; overflow: hidden;
+  }
+  .seccion-header {
+    padding: 18px 24px; border-bottom: 1px solid var(--borde);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .seccion-icono { font-size: 20px; }
+  .seccion-titulo { font-size: 16px; font-weight: 700; }
+  .seccion-desc { font-size: 12px; color: var(--apagado); margin-top: 2px; }
+  .seccion-cuerpo { padding: 24px; }
+
+  /* ── Campos ── */
+  .campo-grupo { margin-bottom: 20px; }
+  .campo-grupo:last-child { margin-bottom: 0; }
+  .campo-grupo label {
+    display: block; font-size: 13px; font-weight: 600;
+    margin-bottom: 6px; color: var(--texto);
+  }
+  .campo-grupo .ayuda {
+    font-size: 11px; color: var(--apagado); margin-bottom: 6px;
+    display: block; font-weight: 400;
+  }
+  .campo-grupo input[type="text"],
+  .campo-grupo input[type="password"],
+  .campo-grupo input[type="number"],
+  .campo-grupo select {
+    width: 100%; padding: 10px 14px;
+    background: var(--superficie2); border: 1px solid var(--borde);
+    border-radius: 8px; color: var(--texto); font-size: 14px;
+    transition: border-color 0.15s;
+    font-family: inherit;
+  }
+  .campo-grupo input:focus, .campo-grupo select:focus {
+    outline: none; border-color: var(--acento);
+  }
+  .campo-grupo input[type="text"].mono,
+  .campo-grupo input[type="password"].mono {
+    font-family: 'Courier New', monospace; font-size: 13px;
+  }
+
+  /* ── Toggle switch ── */
+  .fila-toggle {
+    display: flex; align-items: center;
+    justify-content: space-between; padding: 14px 0;
+    border-bottom: 1px solid var(--borde);
+  }
+  .fila-toggle:last-child { border-bottom: none; padding-bottom: 0; }
+  .fila-toggle:first-child { padding-top: 0; }
+  .toggle-info .toggle-titulo { font-size: 14px; font-weight: 600; }
+  .toggle-info .toggle-desc { font-size: 12px; color: var(--apagado); margin-top: 2px; }
+  .toggle {
+    position: relative; width: 48px; height: 26px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute; cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--superficie2); border: 1px solid var(--borde);
+    border-radius: 26px; transition: all 0.2s;
+  }
+  .toggle-slider:before {
+    content: ""; position: absolute;
+    height: 18px; width: 18px; left: 3px; bottom: 3px;
+    background: var(--apagado); border-radius: 50%; transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: rgba(79,124,255,0.2); border-color: var(--acento); }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(22px); background: var(--acento); }
+
+  /* ── Grilla de 2 columnas ── */
+  .grilla-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  /* ── Routing ── */
+  .routing-fila {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; align-items: center; padding: 12px 0;
+    border-bottom: 1px solid var(--borde);
+  }
+  .routing-fila:last-child { border-bottom: none; padding-bottom: 0; }
+  .routing-fila:first-child { padding-top: 0; }
+  .routing-nombre { font-size: 13px; font-weight: 600; }
+  .routing-nombre span { font-family: monospace; font-size: 11px; color: var(--apagado); display: block; }
+  .routing-fila select {
+    padding: 8px 12px; background: var(--superficie2);
+    border: 1px solid var(--borde); border-radius: 8px;
+    color: var(--texto); font-size: 13px; font-family: inherit;
+  }
+
+  /* ── Botones ── */
+  .barra-botones {
+    display: flex; gap: 12px; justify-content: flex-end;
+    padding-top: 24px; border-top: 1px solid var(--borde);
+    margin-top: 32px;
+  }
+  .btn {
+    padding: 11px 24px; border-radius: 8px; font-size: 14px;
+    font-weight: 600; cursor: pointer; border: none;
+    transition: all 0.15s; font-family: inherit;
+  }
+  .btn-secundario {
+    background: var(--superficie2); color: var(--apagado);
+    border: 1px solid var(--borde);
+  }
+  .btn-secundario:hover { color: var(--texto); border-color: var(--apagado); }
+  .btn-primario {
+    background: var(--acento); color: white;
+  }
+  .btn-primario:hover { background: #3d6aee; }
+  .btn-primario:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Badge de estado ── */
+  .badge {
+    padding: 3px 10px; border-radius: 20px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+  }
+  .badge-activo { background: rgba(34,197,94,0.15); color: var(--verde); }
+  .badge-inactivo { background: rgba(100,116,139,0.15); color: var(--apagado); }
+
+  /* ── Spinner ── */
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: white; border-radius: 50%;
+    animation: girar 0.6s linear infinite; margin-right: 6px;
+    vertical-align: middle;
+  }
+  @keyframes girar { to { transform: rotate(360deg); } }
+
+  @media (max-width: 600px) {
+    main { padding: 16px; }
+    .grilla-2 { grid-template-columns: 1fr; }
+    .routing-fila { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icono">🛰</div>
+    <div>
+      <h1>Hub de Integración Satelital</h1>
+      <p>Panel de Configuración</p>
+    </div>
+  </div>
+  <nav class="nav-links">
+    <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+    <a href="/configuracion" class="nav-link activo">⚙️ Configuración</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Alerta de estado -->
+  <div id="alerta" class="alerta">
+    <span id="alerta-icono"></span>
+    <span id="alerta-texto"></span>
+  </div>
+
+  <!-- ── Sección: General ── -->
+  <div class="seccion">
+    <div class="seccion-header">
+      <span class="seccion-icono">🔧</span>
+      <div>
+        <div class="seccion-titulo">General</div>
+        <div class="seccion-desc">Configuración básica del servidor</div>
+      </div>
+    </div>
+    <div class="seccion-cuerpo">
+      <div class="fila-toggle">
+        <div class="toggle-info">
+          <div class="toggle-titulo">Modo Prueba (DRY_RUN)</div>
+          <div class="toggle-desc">Activo: normaliza y loguea pero NO envía datos. Ideal para testing.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="dry_run">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="grilla-2" style="margin-top:20px">
+        <div class="campo-grupo">
+          <label>Puerto del servidor</label>
+          <span class="ayuda">Puerto en el que escucha el Hub (Railway usa el suyo automáticamente)</span>
+          <input type="number" id="port" value="8000" min="1000" max="65535">
+        </div>
+        <div class="campo-grupo">
+          <label>Nivel de logs</label>
+          <span class="ayuda">Detalle de información en la consola</span>
+          <select id="log_level">
+            <option value="DEBUG">DEBUG — Todo (muy detallado)</option>
+            <option value="INFO" selected>INFO — Normal</option>
+            <option value="WARNING">WARNING — Solo advertencias y errores</option>
+            <option value="ERROR">ERROR — Solo errores</option>
+          </select>
+        </div>
+        <div class="campo-grupo">
+          <label>Retención de logs (horas)</label>
+          <span class="ayuda">Los archivos de log más antiguos se eliminan automáticamente</span>
+          <input type="number" id="log_retention_hours" value="48" min="1" max="720">
+        </div>
+        <div class="campo-grupo">
+          <label>Token de seguridad del Hub</label>
+          <span class="ayuda">Opcional. Los prestadores que nos envían datos deben incluirlo. Dejar vacío para deshabilitar.</span>
+          <input type="password" id="hub_token" placeholder="Dejar vacío = sin autenticación" class="mono">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sección: Destinos ── -->
+  <div class="seccion">
+    <div class="seccion-header">
+      <span class="seccion-icono">📡</span>
+      <div>
+        <div class="seccion-titulo">Destinos</div>
+        <div class="seccion-desc">A donde se envían los datos normalizados</div>
+      </div>
+    </div>
+    <div class="seccion-cuerpo">
+
+      <!-- Recurso Confiable -->
+      <div style="padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid var(--borde)">
+        <div class="fila-toggle" style="padding-top:0">
+          <div class="toggle-info">
+            <div class="toggle-titulo">Recurso Confiable <span class="badge badge-activo" id="badge-rc">ACTIVO</span></div>
+            <div class="toggle-desc">Protocolo SOAP/XML — D-TI-15 v14</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="send_rc" onchange="actualizarBadge('rc', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="grilla-2" style="margin-top:16px">
+          <div class="campo-grupo">
+            <label>URL del servicio SOAP</label>
+            <input type="text" id="rc_url" value="http://gps.rcontrol.com.mx/Tracking/wcf/RCService.svc" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Usuario RC</label>
+            <input type="text" id="rc_user" placeholder="RC_USER_ID" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Contraseña RC</label>
+            <input type="password" id="rc_pass" placeholder="RC_PASSWORD" class="mono">
+          </div>
+        </div>
+      </div>
+
+      <!-- Simon 4.0 -->
+      <div>
+        <div class="fila-toggle" style="padding-top:0">
+          <div class="toggle-info">
+            <div class="toggle-titulo">Simon 4.0 <span class="badge badge-inactivo" id="badge-simon">INACTIVO</span></div>
+            <div class="toggle-desc">Protocolo REST/JSON — HubReceptor API</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="send_simon" onchange="actualizarBadge('simon', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="grilla-2" style="margin-top:16px">
+          <div class="campo-grupo">
+            <label>URL base de Simon</label>
+            <input type="text" id="simon_url" placeholder="https://tu-simon.com" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Token Bearer de Simon</label>
+            <span class="ayuda">Token fijo entregado por Simon. No expira.</span>
+            <input type="password" id="simon_token" placeholder="SIMON_API_TOKEN" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Usuario AVL</label>
+            <input type="text" id="simon_user_avl" value="avl">
+          </div>
+          <div class="campo-grupo">
+            <label>Etiqueta de origen (opcional)</label>
+            <input type="text" id="simon_source_tag" placeholder="Dejar vacío si no aplica">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Sección: APIs / Ingestores ── -->
+  <div class="seccion">
+    <div class="seccion-header">
+      <span class="seccion-icono">🔌</span>
+      <div>
+        <div class="seccion-titulo">APIs — Ingestores Activos</div>
+        <div class="seccion-desc">Prestadores cuya API consultamos nosotros periódicamente</div>
+      </div>
+    </div>
+    <div class="seccion-cuerpo">
+
+      <!-- Control Group -->
+      <div>
+        <div class="fila-toggle" style="padding-top:0">
+          <div class="toggle-info">
+            <div class="toggle-titulo">Control Group <span class="badge badge-inactivo" id="badge-cg">INACTIVO</span></div>
+            <div class="toggle-desc">Gateway XML sobre HTTP — Modo INCREMENTAL</div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="cg_enabled" onchange="actualizarBadge('cg', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+        <div class="grilla-2" style="margin-top:16px">
+          <div class="campo-grupo">
+            <label>URL del gateway</label>
+            <input type="text" id="cg_url" value="https://gateway.control-group.com.ar/gateway.asp" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Intervalo de consulta (segundos)</label>
+            <span class="ayuda">Mínimo recomendado: 60 segundos</span>
+            <input type="number" id="cg_interval" value="60" min="15">
+          </div>
+          <div class="campo-grupo">
+            <label>Usuario</label>
+            <input type="text" id="cg_user" class="mono">
+          </div>
+          <div class="campo-grupo">
+            <label>Contraseña</label>
+            <input type="password" id="cg_pass" class="mono">
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Sección: Routing ── -->
+  <div class="seccion">
+    <div class="seccion-header">
+      <span class="seccion-icono">🔀</span>
+      <div>
+        <div class="seccion-titulo">Routing</div>
+        <div class="seccion-desc">A qué destino van los datos de cada proveedor</div>
+      </div>
+    </div>
+    <div class="seccion-cuerpo">
+      <div id="routing-container">
+        <!-- Se genera dinámicamente con JS -->
+      </div>
+      <div class="campo-grupo" style="margin-top:16px">
+        <label>Destino por defecto (para proveedores sin configuración específica)</label>
+        <span class="ayuda">Se usa cuando un proveedor no tiene una regla de routing propia</span>
+        <select id="destinos_default">
+          <option value="">— Sin defecto (solo los configurados arriba) —</option>
+          <option value="recurso_confiable">Recurso Confiable</option>
+          <option value="simon">Simon 4.0</option>
+          <option value="recurso_confiable,simon">Ambos (RC y Simon)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Botones ── -->
+  <div class="barra-botones">
+    <button class="btn btn-secundario" onclick="recargarConfig()">↺ Recargar</button>
+    <button class="btn btn-primario" id="btn-guardar" onclick="guardarConfig()">
+      💾 Guardar configuración
+    </button>
+  </div>
+
+</main>
+
+<script>
+// =========================================================================
+// Configuración — Lógica de carga y guardado
+// =========================================================================
+
+// Proveedores conocidos para el routing
+const PROVEEDORES = [
+  { id: "control_group", nombre: "Control Group", desc: "Ingestor activo" },
+];
+
+// ── Cargar configuración al abrir la página ──────────────────────────────
+async function cargarConfig() {
+  try {
+    const resp = await fetch("/configuracion/datos");
+    if (!resp.ok) throw new Error("No se pudo cargar la configuración");
+    const datos = await resp.json();
+
+    // General
+    document.getElementById("dry_run").checked = datos.DRY_RUN === "true";
+    document.getElementById("port").value = datos.PORT || "8000";
+    document.getElementById("log_level").value = datos.LOG_LEVEL || "INFO";
+    document.getElementById("log_retention_hours").value = datos.LOG_RETENTION_HOURS || "48";
+    document.getElementById("hub_token").value = datos.HUB_INGEST_TOKEN || "";
+
+    // Recurso Confiable
+    const rcActivo = datos.SEND_TO_RECURSO_CONFIABLE === "true";
+    document.getElementById("send_rc").checked = rcActivo;
+    actualizarBadge("rc", rcActivo);
+    document.getElementById("rc_url").value = datos.RC_SOAP_URL || "http://gps.rcontrol.com.mx/Tracking/wcf/RCService.svc";
+    document.getElementById("rc_user").value = datos.RC_USER_ID || "";
+    document.getElementById("rc_pass").value = datos.RC_PASSWORD || "";
+
+    // Simon
+    const simonActivo = datos.SEND_TO_SIMON === "true";
+    document.getElementById("send_simon").checked = simonActivo;
+    actualizarBadge("simon", simonActivo);
+    document.getElementById("simon_url").value = datos.SIMON_BASE_URL || "";
+    document.getElementById("simon_token").value = datos.SIMON_API_TOKEN || "";
+    document.getElementById("simon_user_avl").value = datos.SIMON_USER_AVL || "avl";
+    document.getElementById("simon_source_tag").value = datos.SIMON_SOURCE_TAG || "";
+
+    // Control Group
+    const cgActivo = datos.CONTROL_GROUP_ENABLED === "true";
+    document.getElementById("cg_enabled").checked = cgActivo;
+    actualizarBadge("cg", cgActivo);
+    document.getElementById("cg_url").value = datos.CONTROL_GROUP_URL || "";
+    document.getElementById("cg_interval").value = datos.CONTROL_GROUP_INTERVAL || "60";
+    document.getElementById("cg_user").value = datos.CONTROL_GROUP_USER || "";
+    document.getElementById("cg_pass").value = datos.CONTROL_GROUP_PASS || "";
+
+    // Routing
+    construirRouting(datos);
+
+    // Default destino
+    document.getElementById("destinos_default").value = datos.DESTINOS_DEFAULT || "";
+
+  } catch (error) {
+    mostrarAlerta("error", "⚠ " + error.message);
+  }
+}
+
+// ── Construir sección de routing dinámicamente ───────────────────────────
+function construirRouting(datos) {
+  const container = document.getElementById("routing-container");
+  container.innerHTML = PROVEEDORES.map(p => {
+    const valorActual = datos[`DESTINOS_${p.id.toUpperCase()}`] || "";
+    return `
+      <div class="routing-fila">
+        <div class="routing-nombre">
+          ${p.nombre}
+          <span>${p.desc}</span>
+        </div>
+        <select id="routing_${p.id}">
+          <option value="" ${!valorActual ? "selected" : ""}>— Usar destino por defecto —</option>
+          <option value="recurso_confiable" ${valorActual === "recurso_confiable" ? "selected" : ""}>Recurso Confiable</option>
+          <option value="simon" ${valorActual === "simon" ? "selected" : ""}>Simon 4.0</option>
+          <option value="recurso_confiable,simon" ${valorActual === "recurso_confiable,simon" ? "selected" : ""}>Ambos (RC y Simon)</option>
+        </select>
+      </div>
+    `;
+  }).join("");
+}
+
+// ── Guardar configuración ────────────────────────────────────────────────
+async function guardarConfig() {
+  const btn = document.getElementById("btn-guardar");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Guardando...';
+
+  const datos = {
+    DRY_RUN: document.getElementById("dry_run").checked ? "true" : "false",
+    PORT: document.getElementById("port").value,
+    LOG_LEVEL: document.getElementById("log_level").value,
+    LOG_RETENTION_HOURS: document.getElementById("log_retention_hours").value,
+    HUB_INGEST_TOKEN: document.getElementById("hub_token").value,
+
+    SEND_TO_RECURSO_CONFIABLE: document.getElementById("send_rc").checked ? "true" : "false",
+    RC_SOAP_URL: document.getElementById("rc_url").value,
+    RC_USER_ID: document.getElementById("rc_user").value,
+    RC_PASSWORD: document.getElementById("rc_pass").value,
+
+    SEND_TO_SIMON: document.getElementById("send_simon").checked ? "true" : "false",
+    SIMON_BASE_URL: document.getElementById("simon_url").value,
+    SIMON_API_TOKEN: document.getElementById("simon_token").value,
+    SIMON_USER_AVL: document.getElementById("simon_user_avl").value,
+    SIMON_SOURCE_TAG: document.getElementById("simon_source_tag").value,
+
+    CONTROL_GROUP_ENABLED: document.getElementById("cg_enabled").checked ? "true" : "false",
+    CONTROL_GROUP_URL: document.getElementById("cg_url").value,
+    CONTROL_GROUP_INTERVAL: document.getElementById("cg_interval").value,
+    CONTROL_GROUP_USER: document.getElementById("cg_user").value,
+    CONTROL_GROUP_PASS: document.getElementById("cg_pass").value,
+
+    DESTINOS_DEFAULT: document.getElementById("destinos_default").value,
+  };
+
+  // Routing por proveedor
+  PROVEEDORES.forEach(p => {
+    const val = document.getElementById(`routing_${p.id}`)?.value;
+    if (val) datos[`DESTINOS_${p.id.toUpperCase()}`] = val;
+  });
+
+  try {
+    const resp = await fetch("/configuracion/guardar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+
+    const resultado = await resp.json();
+
+    if (resp.ok) {
+      mostrarAlerta("exito", "✓ Configuración guardada correctamente. Reiniciá el servidor para aplicar los cambios.");
+    } else {
+      mostrarAlerta("error", "✗ Error: " + (resultado.detalle || "No se pudo guardar"));
+    }
+  } catch (error) {
+    mostrarAlerta("error", "✗ Error de conexión: " + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = "💾 Guardar configuración";
+  }
+}
+
+// ── Recargar desde el servidor ───────────────────────────────────────────
+function recargarConfig() {
+  mostrarAlerta("info", "↺ Recargando configuración...");
+  cargarConfig().then(() => {
+    setTimeout(() => ocultarAlerta(), 2000);
+  });
+}
+
+// ── Actualizar badges de estado ──────────────────────────────────────────
+function actualizarBadge(id, activo) {
+  const badge = document.getElementById(`badge-${id}`);
+  if (!badge) return;
+  badge.className = activo ? "badge badge-activo" : "badge badge-inactivo";
+  badge.textContent = activo ? "ACTIVO" : "INACTIVO";
+}
+
+// ── Alertas ──────────────────────────────────────────────────────────────
+function mostrarAlerta(tipo, texto) {
+  const el = document.getElementById("alerta");
+  el.className = `alerta visible ${tipo}`;
+  document.getElementById("alerta-texto").textContent = texto;
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function ocultarAlerta() {
+  document.getElementById("alerta").className = "alerta";
+}
+
+// Cargar al abrir
+cargarConfig();
+</script>
+</body>
+</html>

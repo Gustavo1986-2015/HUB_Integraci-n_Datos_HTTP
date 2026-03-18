@@ -17,14 +17,67 @@ Estrategia de mapeo:
     1. Se busca el campo con el nombre canónico español.
     2. Si no existe, se prueban los aliases definidos en ALIASES_CAMPOS.
     3. Si tampoco existe, el campo queda en None.
+
+Limpieza de placa:
+    Todas las placas se limpian antes de ser procesadas.
+    Se eliminan espacios, guiones, puntos y caracteres especiales.
+    Esto aplica tanto a datos que nos envían como a datos que consultamos.
 """
 
 import logging
+import re
+import unicodedata
 from datetime import datetime
 from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
+
+
+# =========================================================================== #
+# Limpieza de placa                                                           #
+# =========================================================================== #
+
+def limpiar_placa(placa: Any) -> Optional[str]:
+    """
+    Limpia y normaliza una placa para envío a destinos finales.
+
+    Reglas:
+        - Elimina espacios, guiones, puntos, comas y caracteres especiales
+        - Elimina acentos y caracteres unicode especiales
+        - Convierte a mayúsculas
+        - Si el resultado está vacío, retorna None
+
+    Ejemplos:
+        "ABC-123"  → "ABC123"
+        "XYZ 456"  → "XYZ456"
+        "ÑOP.789"  → "NOP789"
+        "A1B 2C3"  → "A1B2C3"
+
+    Args:
+        placa: Valor crudo de la placa (puede ser string, int, None).
+
+    Returns:
+        Placa limpia en mayúsculas, o None si está vacía o es inválida.
+    """
+    if placa is None:
+        return None
+
+    texto = str(placa).strip()
+    if not texto:
+        return None
+
+    # Normalizar unicode: eliminar acentos y diacríticos
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+
+    # Eliminar todo lo que no sea letra o número
+    texto = re.sub(r"[^A-Za-z0-9]", "", texto)
+
+    # Convertir a mayúsculas
+    texto = texto.upper()
+
+    return texto if texto else None
 
 
 # =========================================================================== #
@@ -45,7 +98,7 @@ class RegistroAVL(BaseModel):
     """
 
     # --- Identificación del vehículo ---
-    placa: Optional[str] = Field(None, description="Placa o ID único del vehículo")
+    placa: Optional[str] = Field(None, description="Placa limpia sin caracteres especiales")
 
     # --- Posición GPS (opcionales — ver regla fundamental) ---
     latitud: Optional[float] = Field(None, description="Latitud decimal (ej: -34.541130)")
@@ -144,13 +197,6 @@ def _buscar_campo(datos: dict, nombre_canonico: str) -> Any:
     """
     Busca el valor de un campo en el diccionario de datos del proveedor,
     probando primero el nombre canónico y luego todos sus aliases.
-
-    Args:
-        datos:           Diccionario con los datos crudos del proveedor.
-        nombre_canonico: Nombre canónico en español (ej: "placa").
-
-    Returns:
-        El valor encontrado, o None si ningún nombre tuvo resultado.
     """
     todos_los_nombres = [nombre_canonico] + ALIASES_CAMPOS.get(nombre_canonico, [])
     for nombre in todos_los_nombres:
@@ -172,23 +218,16 @@ def _normalizar_fecha(fecha_cruda: Any, zona_horaria: str = "-05:00") -> Optiona
         - Con espacio:       2020-07-15 10:12:00  (formato Control Group)
         - Formato latino:    15/07/2020 10:12:00
         - Compacto:          20200715101200
-
-    Args:
-        fecha_cruda:  Fecha tal como llega del proveedor.
-        zona_horaria: Offset a agregar si la fecha no trae timezone.
-
-    Returns:
-        Fecha formateada con offset, o None si no se pudo convertir.
     """
     if fecha_cruda is None:
         return None
 
     FORMATOS_SOPORTADOS = [
-        "%Y-%m-%dT%H:%M:%S%z",   # ISO con timezone
-        "%Y-%m-%dT%H:%M:%S",     # ISO sin timezone
-        "%Y-%m-%d %H:%M:%S",     # Con espacio (Control Group)
-        "%d/%m/%Y %H:%M:%S",     # Formato latino
-        "%Y%m%d%H%M%S",          # Compacto
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%Y%m%d%H%M%S",
     ]
 
     texto = str(fecha_cruda).strip()
@@ -200,7 +239,6 @@ def _normalizar_fecha(fecha_cruda: Any, zona_horaria: str = "-05:00") -> Optiona
         except ValueError:
             continue
 
-    # Si ningún formato funcionó, loguear y devolver tal cual
     logger.warning(
         "[Estandarizador] Fecha '%s' no reconocida. Se enviará sin modificar.",
         fecha_cruda,
@@ -222,8 +260,9 @@ def normalizar_carga(
     Convierte el payload crudo de un proveedor en una lista de RegistroAVL.
 
     Acepta tanto un objeto único {} como una lista de objetos [{},...].
-    Si un registro individual falla, se loguea el error y se continúa
-    con el siguiente — un error puntual no detiene el lote completo.
+    Si un registro individual falla, se loguea el error y se continúa.
+
+    La placa siempre se limpia: sin espacios, guiones ni caracteres especiales.
 
     Args:
         datos_crudos:            Payload recibido (dict o lista de dicts).
@@ -233,11 +272,7 @@ def normalizar_carga(
 
     Returns:
         Lista de RegistroAVL válidos, listos para despachar.
-
-    Raises:
-        ValueError: Si los datos no son dict ni lista.
     """
-    # Normalizar entrada: aceptar objeto único o lista
     if isinstance(datos_crudos, dict):
         registros_crudos = [datos_crudos]
     elif isinstance(datos_crudos, list):
@@ -253,22 +288,24 @@ def normalizar_carga(
     for indice, item in enumerate(registros_crudos):
         if not isinstance(item, dict):
             logger.warning(
-                "[Estandarizador] Registro #%d ignorado: se recibió %s, "
-                "se esperaba dict.", indice, type(item).__name__
+                "[Estandarizador] Registro #%d ignorado: se recibió %s.",
+                indice, type(item).__name__
             )
             continue
 
         try:
-            # Construir diccionario canónico resolviendo aliases
             canonico: dict[str, Any] = {}
             for campo in RegistroAVL.model_fields:
                 canonico[campo] = _buscar_campo(item, campo)
+
+            # Limpiar la placa: sin espacios, guiones ni caracteres especiales
+            canonico["placa"] = limpiar_placa(canonico.get("placa"))
 
             # Normalizar la fecha si existe
             if canonico.get("fecha"):
                 canonico["fecha"] = _normalizar_fecha(canonico["fecha"], zona_horaria)
 
-            # Inyectar metadatos de Simon si no vienen del proveedor
+            # Inyectar metadatos si no vienen del proveedor
             if not canonico.get("usuario_avl"):
                 canonico["usuario_avl"] = usuario_avl_defecto
             if not canonico.get("etiqueta_origen"):

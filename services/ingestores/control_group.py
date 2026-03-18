@@ -11,60 +11,60 @@ Auth:      Parámetros en la URL: ?usuario=X&clave=Y
 CÓMO FUNCIONA EL GATEWAY DE CONTROL GROUP
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. SOLICITUD: GET /gateway.asp?usuario=X&clave=Y&modo=INCREMENTAL
+Solicitud: GET /gateway.asp?usuario=X&clave=Y&modo=INCREMENTAL
 
-2. MODO INCREMENTAL:
-   El servidor recuerda el último evento entregado por usuario.
-   Cada llamada devuelve SOLO los eventos nuevos desde la anterior.
-   No hace falta manejar timestamps del lado del Hub.
+Modo INCREMENTAL:
+    El servidor recuerda el último evento entregado por usuario.
+    Cada llamada devuelve SOLO los eventos nuevos desde la anterior.
 
-3. RESPUESTA XML (estructura dinámica):
-   <r cantidad="N" zonaHoraria="-03:00">
-     <columnas>
-       <i id="A" nombre="idRastreable" predeterminado="123456"/>
-       <i id="C" nombre="nombre" predeterminado="VJV-247"/>
-       <i id="D" nombre="fecha"/>
-       <i id="J" nombre="latitud"/>
-       <i id="K" nombre="longitud"/>
-       ...
-     </columnas>
-     <filas>
-       <i C="ABC-123" D="2024-01-15 10:30:00" J="-34.54" K="-58.47" L="60"/>
-     </filas>
-   </r>
+Estructura XML dinámica:
+    <r cantidad="N" zonaHoraria="-03:00">
+      <columnas>
+        <i id="A" nombre="idRastreable" predeterminado="123456"/>
+        <i id="C" nombre="nombre" predeterminado="VJV-247"/>
+        <i id="D" nombre="fecha"/>
+        <i id="J" nombre="latitud"/>
+        <i id="K" nombre="longitud"/>
+      </columnas>
+      <filas>
+        <i C="ABC123" D="2024-01-15 10:30:00" J="-34.54" K="-58.47"/>
+      </filas>
+    </r>
 
-   ATENCIÓN: Los IDs de columna (A, B, C...) pueden cambiar entre versiones.
-   Los NOMBRES (nombre, latitud, velocidad...) son constantes.
-   El parser construye el mapa dinámicamente leyendo <columnas>.
+    IMPORTANTE — IDs dinámicos:
+    Los IDs de columna (A, B, C...) pueden cambiar entre versiones.
+    Los NOMBRES (nombre, latitud, velocidad...) son constantes.
+    El parser construye el mapa dinámicamente en cada respuesta.
 
-4. ZONA HORARIA: Fechas en hora local Argentina (-03:00).
+    IMPORTANTE — Valores predeterminados:
+    Si una fila no trae un atributo, se usa el predeterminado
+    declarado en <columnas>. El campo "nombre" (placa) NUNCA es nulo
+    según el manual — siempre tiene predeterminado.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-REGLA FUNDAMENTAL DE TELEMETRÍA — NUNCA DESCARTAR REGISTROS
+REGLA FUNDAMENTAL — NUNCA DESCARTAR REGISTROS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Todos los eventos son procesados y enviados, incluso si:
-  - La latitud o longitud son nulas (GPS sin señal)
-  - Las coordenadas son (0, 0) (fix GPS no válido)
+Todos los eventos se procesan y envían aunque:
+  - Latitud o longitud sean nulas (GPS sin señal)
+  - Las coordenadas sean (0, 0) (fix GPS no válido)
 
-Un evento de pánico, apertura de puerta, batería baja, o cualquier
-alarma es información valiosa independientemente de si hay posición GPS.
-En esos casos, latitud y longitud se envían como None → los despachadores
-usan 0.0 al enviar a los destinos finales.
+Un evento de pánico, batería baja o alarma es valioso
+independientemente de si hay posición GPS en ese momento.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MAPEO: Campos Control Group → RegistroAVL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
- nombre          → placa           (patente/dominio del vehículo)
- idRastreable    → numero_serie    (ID numérico interno de CG)
- fecha           → fecha           (con offset: YYYY-MM-DDTHH:MM:SS-03:00)
- latitud         → latitud         (puede ser None — no se descarta)
- longitud        → longitud        (puede ser None — no se descarta)
- velocidad       → velocidad       (km/h, puede ser None)
- rumbo           → rumbo           (grados 0-359, puede ser None)
- temperatura     → temperatura     (°C, puede ser None)
- idTipoEvento    → codigo_evento   (0=POSICIÓN, 1=PÁNICO, etc.)
+ nombre          → placa          (limpia, sin caracteres especiales)
+ idRastreable    → numero_serie   (fallback si nombre está vacío)
+ fecha           → fecha          (con offset -03:00)
+ latitud         → latitud        (None si no hay señal — no descarta)
+ longitud        → longitud       (None si no hay señal — no descarta)
+ velocidad       → velocidad      (puede ser None)
+ rumbo           → rumbo          (puede ser None)
+ temperatura     → temperatura    (puede ser None)
+ idTipoEvento    → codigo_evento  (0=POSICIÓN, 1=PÁNICO, etc.)
 """
 
 import logging
@@ -74,7 +74,7 @@ from typing import Optional
 import httpx
 
 from services.ingestores.base import IngestorBase
-from services.estandarizador import RegistroAVL
+from services.estandarizador import RegistroAVL, limpiar_placa
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +94,10 @@ class IngestorControlGroup(IngestorBase):
     ):
         """
         Args:
-            url:          URL del gateway (ej: https://gateway.control-group.com.ar/gateway.asp)
+            url:          URL del gateway
             usuario:      Usuario de acceso
             clave:        Contraseña de acceso
-            zona_horaria: Offset de timezone del servidor. CG usa -03:00 (hora Argentina)
+            zona_horaria: Offset del servidor. CG usa -03:00 (hora Argentina)
         """
         self._url = url
         self._usuario = usuario
@@ -112,9 +112,9 @@ class IngestorControlGroup(IngestorBase):
         """
         Ciclo completo de consulta:
             1. GET al gateway en modo INCREMENTAL
-            2. Parsear el XML con columnas dinámicas
-            3. Convertir TODOS los eventos a RegistroAVL (sin descartar ninguno)
-            4. Retornar la lista lista para despachar
+            2. Parsear XML con columnas dinámicas
+            3. Convertir TODOS los eventos a RegistroAVL
+            4. Retornar la lista para despachar
         """
         try:
             xml_texto = await self._pedir_datos()
@@ -126,10 +126,7 @@ class IngestorControlGroup(IngestorBase):
                 return []
 
             registros = self._filas_a_registros(filas_crudas)
-            logger.info(
-                "[CG] Consulta completa: %d registro(s) obtenidos.",
-                len(registros),
-            )
+            logger.info("[CG] Consulta completa: %d registro(s) obtenidos.", len(registros))
             return registros
 
         except Exception as error:
@@ -137,14 +134,13 @@ class IngestorControlGroup(IngestorBase):
             return []
 
     # ------------------------------------------------------------------ #
-    # Capa de red                                                         #
+    # Red                                                                 #
     # ------------------------------------------------------------------ #
 
     async def _pedir_datos(self) -> Optional[str]:
         """
-        Realiza el GET al gateway en modo INCREMENTAL.
-        El servidor entrega solo los eventos nuevos desde la última consulta
-        de este usuario. No hay que gestionar estado local.
+        GET al gateway en modo INCREMENTAL.
+        Solo devuelve eventos nuevos desde la última consulta de este usuario.
         """
         parametros = {
             "usuario": self._usuario,
@@ -155,10 +151,8 @@ class IngestorControlGroup(IngestorBase):
             async with httpx.AsyncClient(timeout=30.0) as cliente:
                 respuesta = await cliente.get(self._url, params=parametros)
                 respuesta.raise_for_status()
-            logger.debug(
-                "[CG] GET exitoso. HTTP %d — %d bytes.",
-                respuesta.status_code, len(respuesta.content),
-            )
+            logger.debug("[CG] GET exitoso. HTTP %d — %d bytes.",
+                         respuesta.status_code, len(respuesta.content))
             return respuesta.text
 
         except httpx.HTTPStatusError as e:
@@ -175,35 +169,24 @@ class IngestorControlGroup(IngestorBase):
 
     def _parsear_xml(self, xml_texto: str) -> list[dict]:
         """
-        Parsea la respuesta XML del gateway con estructura de columnas dinámica.
+        Parsea la respuesta XML con estructura de columnas dinámica.
 
         Algoritmo:
-            1. Leer <columnas> → construir mapa {id_letra → nombre_campo}
+            1. Leer <columnas> → construir mapa {id_letra → {nombre, predeterminado}}
             2. Leer <filas> → resolver atributos usando el mapa
-            3. Aplicar valores predeterminados para atributos ausentes
-            4. Adjuntar la zona horaria del servidor para uso posterior
-
-        Args:
-            xml_texto: XML crudo de la respuesta del gateway.
-
-        Returns:
-            Lista de dicts con nombres de campo CG como claves.
+            3. Si la fila no trae un atributo → usar el predeterminado de la columna
         """
         try:
             raiz = ET.fromstring(xml_texto.strip())
         except ET.ParseError as error:
-            logger.error(
-                "[CG] Error al parsear XML: %s. Inicio: %s",
-                error, xml_texto[:200],
-            )
+            logger.error("[CG] Error al parsear XML: %s. Inicio: %s",
+                         error, xml_texto[:200])
             return []
 
-        # Verificar advertencias del servidor
         if raiz.get("advertencia") == "1":
             logger.warning("[CG] Advertencia del servidor: %s",
                            raiz.get("mensaje", "sin detalle"))
 
-        # Sin eventos nuevos
         cantidad = int(raiz.get("cantidad", "0"))
         if cantidad == 0:
             logger.debug("[CG] Sin eventos nuevos (cantidad=0).")
@@ -211,7 +194,7 @@ class IngestorControlGroup(IngestorBase):
 
         zona_horaria = raiz.get("zonaHoraria", self._zona_horaria)
 
-        # Paso 1: Construir mapa {id_letra → {nombre, predeterminado}}
+        # Paso 1: Mapa {id_letra → {nombre, predeterminado}}
         mapa_columnas: dict[str, dict] = {}
         elemento_columnas = raiz.find("columnas")
         if elemento_columnas is None:
@@ -221,14 +204,17 @@ class IngestorControlGroup(IngestorBase):
         for columna in elemento_columnas.findall("i"):
             id_col = columna.get("id")
             nombre_col = columna.get("nombre")
-            defecto_col = columna.get("predeterminado")
+            defecto_col = columna.get("predeterminado")  # Puede ser None si no se declaró
             if id_col and nombre_col:
-                mapa_columnas[id_col] = {"nombre": nombre_col, "predeterminado": defecto_col}
+                mapa_columnas[id_col] = {
+                    "nombre": nombre_col,
+                    "predeterminado": defecto_col,
+                }
 
         logger.debug("[CG] Columnas mapeadas: %s",
                      {k: v["nombre"] for k, v in mapa_columnas.items()})
 
-        # Paso 2: Parsear filas usando el mapa
+        # Paso 2: Parsear filas
         elemento_filas = raiz.find("filas")
         if elemento_filas is None:
             logger.warning("[CG] Elemento <filas> no encontrado.")
@@ -238,7 +224,8 @@ class IngestorControlGroup(IngestorBase):
         for fila in elemento_filas.findall("i"):
             registro_fila: dict = {}
             for id_col, info_col in mapa_columnas.items():
-                # Valor explícito en la fila > predeterminado de columna > None
+                # Si la fila no trae el atributo → usar predeterminado de columna
+                # Si tampoco hay predeterminado → None (según manual CG)
                 valor = fila.get(id_col, info_col["predeterminado"])
                 registro_fila[info_col["nombre"]] = valor
             registro_fila["_zona_horaria"] = zona_horaria
@@ -255,44 +242,57 @@ class IngestorControlGroup(IngestorBase):
         Convierte los dicts crudos del gateway a instancias RegistroAVL.
 
         REGLA FUNDAMENTAL: NUNCA se descarta un registro.
-        Si latitud o longitud son nulos o inválidos, se asigna None.
-        Los despachadores enviarán 0.0 en esos casos al destino final.
 
-        Args:
-            filas: Lista de dicts con nombres de campo CG.
+        Placa:
+            1. Intentar usar el campo "nombre" (patente/dominio)
+            2. Si está vacío, usar "idRastreable" como fallback
+            3. Limpiar la placa: sin espacios, guiones ni caracteres especiales
 
-        Returns:
-            Lista de RegistroAVL — uno por cada fila recibida.
+        Lat/Lon:
+            Si son None o inválidos → se asigna None (no se descarta el registro)
+            Los despachadores enviarán 0.0 al destino final en esos casos.
         """
         resultado: list[RegistroAVL] = []
 
         for indice, fila in enumerate(filas):
 
-            # Intentar convertir lat/lon — si fallan, quedan None (no se descarta)
+            # --- Placa: nombre → idRastreable → None ---
+            # "nombre" es NUNCA NULO según el manual, pero por seguridad
+            # usamos idRastreable como fallback si nombre está vacío
+            placa_cruda = fila.get("nombre") or fila.get("idRastreable")
+            placa_limpia = limpiar_placa(placa_cruda)
+
+            if not placa_limpia:
+                logger.debug(
+                    "[CG] Fila %d: sin placa identificable (nombre='%s', id='%s'). "
+                    "Se usará 'SIN_PLACA'.",
+                    indice, fila.get("nombre"), fila.get("idRastreable"),
+                )
+                placa_limpia = "SINPLACA"
+
+            # --- Latitud y Longitud: None si no hay señal (NO descarta) ---
             lat_cruda = fila.get("latitud")
             lon_cruda = fila.get("longitud")
 
             try:
                 latitud = float(lat_cruda) if lat_cruda is not None else None
             except (ValueError, TypeError):
-                logger.debug("[CG] Fila %d: latitud '%s' no convertible — se usará None.", indice, lat_cruda)
+                logger.debug("[CG] Fila %d: latitud '%s' inválida → None.", indice, lat_cruda)
                 latitud = None
 
             try:
                 longitud = float(lon_cruda) if lon_cruda is not None else None
             except (ValueError, TypeError):
-                logger.debug("[CG] Fila %d: longitud '%s' no convertible — se usará None.", indice, lon_cruda)
+                logger.debug("[CG] Fila %d: longitud '%s' inválida → None.", indice, lon_cruda)
                 longitud = None
 
-            # Registrar en log si no hay posición (informativo, NO descarta)
             if latitud is None or longitud is None:
                 logger.debug(
-                    "[CG] Fila %d: sin posición GPS (lat=%s, lon=%s). "
-                    "El registro se procesa igual.",
-                    indice, lat_cruda, lon_cruda,
+                    "[CG] Fila %d (placa=%s): sin posición GPS. El registro se procesa igual.",
+                    indice, placa_limpia,
                 )
 
-            # Formatear fecha con zona horaria del servidor
+            # --- Fecha con zona horaria del servidor ---
             fecha_formateada = self._formatear_fecha(
                 fila.get("fecha", ""),
                 fila.get("_zona_horaria", self._zona_horaria),
@@ -300,7 +300,7 @@ class IngestorControlGroup(IngestorBase):
 
             try:
                 registro = RegistroAVL(
-                    placa=fila.get("nombre"),
+                    placa=placa_limpia,
                     numero_serie=str(fila.get("idRastreable") or ""),
                     latitud=latitud,
                     longitud=longitud,
@@ -315,10 +315,7 @@ class IngestorControlGroup(IngestorBase):
                 resultado.append(registro)
 
             except Exception as error:
-                logger.warning(
-                    "[CG] Error creando RegistroAVL para fila %d: %s",
-                    indice, error,
-                )
+                logger.warning("[CG] Error creando RegistroAVL para fila %d: %s", indice, error)
 
         return resultado
 
@@ -331,24 +328,15 @@ class IngestorControlGroup(IngestorBase):
         """
         Convierte la fecha del gateway CG al formato ISO 8601 con offset.
 
-        CG devuelve fechas con ESPACIO entre fecha y hora:
-            "2024-01-15 10:30:00"  →  "2024-01-15T10:30:00-03:00"
-
-        Args:
-            fecha_cruda:  Fecha tal como llega del gateway.
-            zona_horaria: Offset del servidor (ej: "-03:00").
-
-        Returns:
-            Fecha en ISO 8601 con offset, o None si el input está vacío.
+        CG devuelve fechas con ESPACIO: "2024-01-15 10:30:00"
+        Resultado:                      "2024-01-15T10:30:00-03:00"
         """
         if not fecha_cruda or not str(fecha_cruda).strip():
             return None
 
-        # Reemplazar espacio por T
         fecha_iso = str(fecha_cruda).strip().replace(" ", "T")
 
-        # Agregar offset solo si la fecha tiene 19 caracteres exactos (sin timezone)
-        # "2024-01-15T10:30:00" = 19 caracteres
+        # Agregar offset si la fecha tiene exactamente 19 caracteres (sin timezone)
         if len(fecha_iso) == 19:
             fecha_iso = f"{fecha_iso}{zona_horaria}"
 

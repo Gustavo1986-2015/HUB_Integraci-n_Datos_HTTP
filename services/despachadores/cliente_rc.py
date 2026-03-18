@@ -231,7 +231,7 @@ async def _obtener_token(url: str, usuario: str, clave: str) -> Optional[str]:
     xml_solicitud = _xml_obtener_token(usuario, clave)
     encabezados = {
         "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": '"http://tempuri.org/IRCService/GetUserToken"',
+        "SOAPAction": "http://tempuri.org/IRCService/GetUserToken",
     }
 
     for intento in range(1, 3):
@@ -283,27 +283,27 @@ async def despachar(
         clave:     Credencial de contraseña.
 
     Returns:
-        True si el envío fue exitoso, False si falló.
+        Tupla (exitoso: bool, id_trabajo: str).
+        id_trabajo contiene el idJob de RC en caso de éxito, o "" si falló.
     """
     if not registros:
         logger.warning("[RC] despachar() llamado con lista vacía.")
-        return False
+        return False, ""
 
     if not usuario or not clave:
         logger.error("[RC] Faltan credenciales (RC_USER_ID / RC_PASSWORD).")
-        return False
+        return False, ""
 
     encabezados = {
         "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": '"http://tempuri.org/IRCService/GPSAssetTracking"'
-,
+        "SOAPAction": '"http://tempuri.org/IRCService/GPSAssetTracking"',
     }
 
     for intento in range(1, 3):
         token = await _obtener_token(url, usuario, clave)
         if not token:
             logger.error("[RC] Sin token. Abortando envío (intento %d).", intento)
-            return False
+            return False, ""
 
         xml_solicitud = _xml_enviar_pulsos(token, registros)
 
@@ -316,7 +316,7 @@ async def despachar(
                 )
                 respuesta.raise_for_status()
 
-            # RC puede devolver HTTP 200 pero con error de auth en el cuerpo (comportamiento SOAP)
+            # RC puede devolver HTTP 200 pero con error de auth en el cuerpo
             if "USERUNK" in respuesta.text or (
                 "incorrecta" in respuesta.text and "Autent" in respuesta.text
             ):
@@ -324,12 +324,12 @@ async def despachar(
                 _cache_token.invalidar()
                 continue
 
-            id_trabajo = _extraer_id_trabajo(respuesta.text)
+            id_trabajo = _extraer_id_trabajo(respuesta.text) or ""
             logger.info(
                 "[RC] Envío exitoso. %d registro(s). idJob=%s",
                 len(registros), id_trabajo or "N/D",
             )
-            return True
+            return True, id_trabajo
 
         except httpx.HTTPStatusError as e:
             logger.error("[RC] HTTP %d (intento %d): %s",
@@ -337,11 +337,11 @@ async def despachar(
             if e.response.status_code in (401, 403):
                 _cache_token.invalidar()
                 continue
-            return False
+            return False, ""
 
         except httpx.RequestError as e:
             logger.error("[RC] Error de red (intento %d): %s", intento, e)
-            return False
+            return False, ""
 
     logger.error("[RC] Todos los intentos fallaron.")
-    return False
+    return False, ""
