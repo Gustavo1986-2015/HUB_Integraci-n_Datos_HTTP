@@ -231,7 +231,7 @@ async def _obtener_token(url: str, usuario: str, clave: str) -> Optional[str]:
     xml_solicitud = _xml_obtener_token(usuario, clave)
     encabezados = {
         "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": "http://tempuri.org/IRCService/GetUserToken",
+        "SOAPAction": '"http://tempuri.org/IRCService/GetUserToken"',
     }
 
     for intento in range(1, 3):
@@ -295,7 +295,8 @@ async def despachar(
 
     encabezados = {
         "Content-Type": "text/xml; charset=utf-8",
-        "SOAPAction": "http://tempuri.org/IRCService/GPSAssetTracking",
+        "SOAPAction": '"http://tempuri.org/IRCService/GPSAssetTracking"'
+,
     }
 
     for intento in range(1, 3):

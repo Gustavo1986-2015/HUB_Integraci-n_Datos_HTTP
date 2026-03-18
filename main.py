@@ -94,6 +94,12 @@ async def despachar(registros: list[RegistroAVL], nombre_proveedor: str) -> None
 
     destinos = config.obtener_destinos_del_proveedor(nombre_proveedor)
 
+    # Registrar ingesta en métricas (modo activo — viene del planificador)
+    almacen_metricas.registrar_ingesta(
+        nombre_proveedor, len(registros), len(registros), 
+        [r.placa for r in registros if r.placa]
+    )
+
     if not destinos:
         logger.warning(
             "[Despacho] '%s': sin destinos configurados. "
@@ -103,9 +109,14 @@ async def despachar(registros: list[RegistroAVL], nombre_proveedor: str) -> None
         )
         return
 
+    origen = "modo activo" if nombre_proveedor in list(planificador._ingestores.keys()) else "modo pasivo"
     logger.info(
-        "[Despacho] '%s': %d registro(s) → destinos: %s",
-        nombre_proveedor, len(registros), destinos,
+        "[Ingesta] ► Recibido de '%s' — %d registro(s) [%s]",
+        nombre_proveedor, len(registros), origen,
+    )
+    logger.info(
+        "[Despacho] '%s' → destinos: %s",
+        nombre_proveedor, destinos,
     )
 
     # ── Modo prueba: simular sin enviar ─────────────────────────────────
@@ -178,6 +189,10 @@ async def recibir_y_despachar(datos_crudos: Any, nombre_proveedor: str) -> None:
         nombre_proveedor: Nombre del proveedor (parámetro de la URL).
     """
     cantidad_cruda = len(datos_crudos) if isinstance(datos_crudos, list) else 1
+    logger.info(
+        "[Ingesta] ► Recibido de '%s' — %d evento(s) [modo pasivo]",
+        nombre_proveedor, cantidad_cruda,
+    )
 
     try:
         registros = normalizar_carga(
@@ -224,6 +239,9 @@ async def ciclo_vida(app: FastAPI):
     logger.info("Hub de Integración Satelital — Iniciando...")
     if config.MODO_PRUEBA:
         logger.warning("*** MODO PRUEBA ACTIVO — Sin envíos reales ***")
+    logger.info("Destinos configurados:")
+    logger.info("  RC:    %s", "✓ Activo" if config.ENVIAR_A_RC else "— Inactivo")
+    logger.info("  Simon: %s", "✓ Activo" if config.ENVIAR_A_SIMON else "— Inactivo")
     logger.info("Ingestores activos:")
 
     # ── Registrar ingestores activos ─────────────────────────────────────
@@ -270,9 +288,10 @@ app = FastAPI(
         "los normaliza y los despacha a Recurso Confiable (SOAP) "
         "y/o Simon 4.0 (REST)."
     ),
+    docs_url=None,
+    redoc_url=None,
     lifespan=ciclo_vida,
 )
-
 
 # =========================================================================== #
 # Seguridad                                                                   #
