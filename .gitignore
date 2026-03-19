@@ -32,6 +32,8 @@ desktop.ini
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
+logs/
+cola/
 
 # ── Carpeta vieja (no debe subirse) ───────────────────────────────────────────
 ingestores (API)/
