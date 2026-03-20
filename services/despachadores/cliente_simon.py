@@ -3,15 +3,20 @@ services/despachadores/cliente_simon.py
 ========================================
 Cliente REST para Simon 4.0.
 
-Protocolo: API HubReceptor Simon 4.0 — Alta de AvlRecords
+Protocolo: API HubReceptor Simon 4.0
 
-Endpoint destino: POST /ReceiveAvlRecords
+Endpoint destino: URL completa configurada en SIMON_BASE_URL
+Ejemplo: https://simon-pre-webapi.assistcargo.com/RPAAvlRecord/Add
 
 Diferencias clave con Recurso Confiable:
     - Protocolo REST/JSON (no SOAP/XML)
-    - Token fijo Bearer — Simon lo entrega una sola vez, no expira
+    - Token Bearer opcional — Simon lo entrega una sola vez, no expira
     - El cuerpo SIEMPRE es una lista JSON, aunque sea un solo registro
-    - Campos adicionales: Alert, User_avl, SourceTag
+
+Zona horaria:
+    Simon requiere fechas en hora LOCAL del prestador (no UTC).
+    Se usa SIMON_TIMEZONE_OFFSET del .env (por defecto: -03:00 Argentina).
+    El offset se reemplaza en la fecha antes de enviar.
 
 Nota sobre lat/lon = 0:
     Cuando el GPS no tiene señal, se envía 0.0. Simon lo registra
@@ -19,6 +24,7 @@ Nota sobre lat/lon = 0:
 """
 
 import logging
+import re
 from typing import Optional
 
 import httpx
@@ -28,13 +34,44 @@ from services.estandarizador import RegistroAVL
 logger = logging.getLogger(__name__)
 
 
-def _registro_a_dict_simon(registro: RegistroAVL) -> dict:
+def _ajustar_fecha_simon(fecha: Optional[str], zona_horaria_simon: str) -> str:
+    """
+    Convierte la fecha al formato que requiere Simon:
+    hora local del prestador con el offset de SIMON_TIMEZONE_OFFSET.
+
+    Simon 4.0 requiere hora local, NO UTC.
+    RC requiere UTC. Por eso los offsets son distintos.
+
+    Proceso:
+        "2026-03-18T13:00:00+00:00"  →  "2026-03-18T13:00:00-03:00"
+        "2026-03-18T13:00:00"        →  "2026-03-18T13:00:00-03:00"
+
+    Args:
+        fecha:              Fecha normalizada (ISO 8601).
+        zona_horaria_simon: Offset local del prestador (ej: "-03:00").
+
+    Returns:
+        Fecha con el offset correcto para Simon.
+    """
+    if not fecha:
+        return ""
+
+    # Eliminar cualquier offset existente y reemplazar con el de Simon
+    fecha_sin_offset = re.sub(r"[Zz]$|[+-]\d{2}:\d{2}$", "", str(fecha)).strip()
+    return f"{fecha_sin_offset}{zona_horaria_simon}"
+
+
+def _registro_a_dict_simon(
+    registro: RegistroAVL,
+    zona_horaria_simon: str = "-03:00",
+) -> dict:
     """
     Convierte un RegistroAVL al esquema exacto que espera Simon 4.0.
 
-    Reglas de conversión (esquema Simon pp. 2-3):
-    - Latitud y Longitud: float (number/$double). Si son None → 0.0
-    - Todos los demás campos: string. None → cadena vacía ""
+    Reglas:
+    - Latitud y Longitud: float. Si son None → 0.0
+    - Todos los demás campos: string. None → ""
+    - Date: en hora local con offset SIMON_TIMEZONE_OFFSET
     - Los nombres de campos deben coincidir exactamente con el protocolo Simon
     """
 
@@ -49,7 +86,7 @@ def _registro_a_dict_simon(registro: RegistroAVL) -> dict:
         "Alert":        a_texto(registro.alerta),
         "Code":         a_texto(registro.codigo_evento),
         "Course":       a_texto(registro.rumbo),
-        "Date":         a_texto(registro.fecha),
+        "Date":         _ajustar_fecha_simon(registro.fecha, zona_horaria_simon),
         "Direction":    a_texto(registro.direccion),
         "Humidity":     a_texto(registro.humedad),
         "Ignition":     a_texto(registro.ignicion),
@@ -70,27 +107,30 @@ async def despachar(
     usuario_avl: Optional[str] = None,
     etiqueta_origen: Optional[str] = None,
     token_api: Optional[str] = None,
+    zona_horaria_simon: str = "-03:00",
+    integration_key: Optional[str] = None,
 ) -> bool:
     """
     Envía una lista de registros AVL al endpoint REST de Simon 4.0.
 
-    El cuerpo del request es SIEMPRE una lista JSON — requerimiento
-    explícito del protocolo (p.3), incluso para un solo registro.
+    El cuerpo del request es SIEMPRE una lista JSON — incluso para un solo registro.
 
     Lotes grandes:
         Si hay más de 100 registros, se dividen en bloques de 100
         para evitar timeouts del servidor.
 
     Args:
-        registros:       Lista de RegistroAVL normalizados.
-        url_base:        URL base del HubReceptor Simon (sin /ReceiveAvlRecords).
-        usuario_avl:     Override para el campo User_avl de todos los registros.
-        etiqueta_origen: Override para el campo SourceTag de todos los registros.
-        token_api:       Token Bearer fijo de Simon. Se incluye en el header
-                         Authorization si está presente.
+        registros:           Lista de RegistroAVL normalizados.
+        url_base:            URL completa del endpoint Simon.
+                             Ejemplo: https://simon-pre.../RPAAvlRecord/Add
+        usuario_avl:         Override para el campo User_avl.
+        etiqueta_origen:     Override para el campo SourceTag.
+        token_api:           Token Bearer. Incluido en Authorization si presente.
+        zona_horaria_simon:  Offset de hora local para las fechas.
+                             Simon requiere hora local, no UTC.
 
     Returns:
-        True si todos los bloques se enviaron exitosamente, False si alguno falló.
+        True si todos los bloques se enviaron correctamente, False si alguno falló.
     """
     if not registros:
         logger.warning("[Simon] despachar() llamado con lista vacía.")
@@ -100,7 +140,8 @@ async def despachar(
         logger.error("[Simon] SIMON_BASE_URL no configurado. Abortando envío.")
         return False
 
-    endpoint = f"{url_base.rstrip('/')}/ReceiveAvlRecords"
+    # La URL configurada ES el endpoint completo — no agregar sufijos
+    endpoint = url_base.rstrip("/")
 
     # Aplicar overrides de metadatos si se proporcionaron
     if usuario_avl or etiqueta_origen:
@@ -115,8 +156,10 @@ async def despachar(
             for r in registros
         ]
 
-    # Convertir al esquema Simon
-    carga: list[dict] = [_registro_a_dict_simon(r) for r in registros]
+    # Convertir al esquema Simon con el offset correcto
+    carga: list[dict] = [
+        _registro_a_dict_simon(r, zona_horaria_simon) for r in registros
+    ]
 
     # Dividir en bloques de 100 para lotes grandes
     TAMANIO_BLOQUE = 100
@@ -125,35 +168,43 @@ async def despachar(
         for i in range(0, len(carga), TAMANIO_BLOQUE)
     ]
 
-    # Construir encabezados HTTP — incluir Bearer si hay token configurado
+    # Construir encabezados
     encabezados: dict = {
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
     if token_api:
         encabezados["Authorization"] = f"Bearer {token_api}"
+    if integration_key:
+        # Simon puede requerir la integration key como header o parámetro
+        encabezados["X-Integration-Key"] = integration_key
+        encabezados["IntegrationKey"] = integration_key
 
     todo_exitoso = True
 
     for numero_bloque, bloque in enumerate(bloques, start=1):
         logger.debug(
-            "[Simon] Enviando bloque %d/%d (%d registros) → %s",
+            "[Simon] Bloque %d/%d (%d registros) → %s",
             numero_bloque, len(bloques), len(bloque), endpoint,
         )
         try:
             async with httpx.AsyncClient(timeout=30.0) as cliente:
-                respuesta = await cliente.post(endpoint, json=bloque, headers=encabezados)
+                respuesta = await cliente.post(
+                    endpoint, json=bloque, headers=encabezados
+                )
                 respuesta.raise_for_status()
 
             logger.info(
                 "[Simon] Bloque %d/%d enviado. HTTP %d — %d registro(s).",
-                numero_bloque, len(bloques), respuesta.status_code, len(bloque),
+                numero_bloque, len(bloques),
+                respuesta.status_code, len(bloque),
             )
 
         except httpx.HTTPStatusError as e:
             logger.error(
                 "[Simon] HTTP %d en bloque %d/%d: %s",
-                e.response.status_code, numero_bloque, len(bloques), e.response.text[:400],
+                e.response.status_code, numero_bloque, len(bloques),
+                e.response.text[:400],
             )
             todo_exitoso = False
 
@@ -166,8 +217,9 @@ async def despachar(
 
     if todo_exitoso:
         logger.info(
-            "[Simon] Envío completo: %d registro(s) en %d bloque(s).",
-            len(registros), len(bloques),
+            "[Simon] Envío completo: %d registro(s) en %d bloque(s). "
+            "Offset fecha: %s",
+            len(registros), len(bloques), zona_horaria_simon,
         )
     else:
         logger.warning("[Simon] Envío parcial. Revisar logs anteriores.")

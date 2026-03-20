@@ -37,3 +37,16 @@ cola/
 
 # ── Carpeta vieja (no debe subirse) ───────────────────────────────────────────
 ingestores (API)/
+
+# Compilación PyInstaller
+build/
+dist/
+*.spec
+
+# Entorno virtual
+venv/
+.venv/
+
+# Datos runtime (se generan solos)
+logs/
+cola/

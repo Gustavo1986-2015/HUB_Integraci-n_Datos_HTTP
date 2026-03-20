@@ -267,6 +267,8 @@ async def _despachar_con_cola_simon(
                 usuario_avl=config.SIMON_USUARIO_AVL,
                 etiqueta_origen=config.SIMON_ETIQUETA_ORIGEN,
                 token_api=config.SIMON_TOKEN_API,
+                zona_horaria_simon=config.SIMON_ZONA_HORARIA,
+                integration_key=config.SIMON_INTEGRATION_KEY,
             )
             if exito_reintento:
                 limpiar_pendientes("simon")
@@ -288,6 +290,8 @@ async def _despachar_con_cola_simon(
             usuario_avl=config.SIMON_USUARIO_AVL,
             etiqueta_origen=config.SIMON_ETIQUETA_ORIGEN,
             token_api=config.SIMON_TOKEN_API,
+            zona_horaria_simon=config.SIMON_ZONA_HORARIA,
+            integration_key=config.SIMON_INTEGRATION_KEY,
         )
         almacen_metricas.registrar_despacho(
             "simon", len(registros), exito,

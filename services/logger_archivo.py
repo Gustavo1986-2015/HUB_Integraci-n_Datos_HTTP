@@ -8,18 +8,21 @@ Genera un archivo por día en la carpeta logs/:
 
 Cada línea es un evento JSON independiente (formato JSONL).
 
-Hay dos tipos de entradas:
-    - "ingesta":  un registro por cada placa recibida con todos sus datos
-    - "despacho": resumen del lote enviado al destino con resultado
+Tipos de entradas:
+    - ingesta_lote:  resumen del lote (1 línea por ciclo)
+    - ingesta:       un registro por placa con todos sus datos
+    - despacho:      resultado del envío con idJob
+    - error:         fallo en alguna etapa
 
-Esto permite auditar:
-    - Qué datos exactos tenía cada placa en cada momento
-    - Si el envío fue exitoso o falló
-    - Trazabilidad completa: desde el origen hasta el destino
+Rendimiento:
+    Toda escritura se hace en una ÚNICA apertura de archivo por llamada.
+    Esto evita bloquear el event loop de asyncio cuando hay miles de registros.
+    Con 10.000 registros, se abre el archivo una sola vez, se escriben
+    todas las líneas en buffer y se cierra — en vez de 10.001 aperturas.
 
-Retención configurable:
-    LOG_RETENTION_HOURS en .env (por defecto 48 horas)
-    Al arrancar el servidor, borra automáticamente los archivos viejos.
+Retención:
+    Configurable con LOG_RETENTION_HOURS en .env (por defecto 48 horas).
+    Los archivos viejos se eliminan automáticamente al arrancar el servidor.
 """
 
 import json
@@ -27,10 +30,6 @@ import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from services.estandarizador import RegistroAVL
 
 logger = logging.getLogger(__name__)
 
@@ -38,20 +37,21 @@ CARPETA_LOGS = Path("logs")
 
 
 def _ruta_archivo_hoy() -> Path:
-    """Retorna la ruta del archivo de log del día actual."""
-    nombre = f"hub_{datetime.now().strftime('%Y-%m-%d')}.json"
-    return CARPETA_LOGS / nombre
+    return CARPETA_LOGS / f"hub_{datetime.now().strftime('%Y-%m-%d')}.json"
 
 
-def _escribir(evento: dict) -> None:
+def _escribir_lineas(lineas: list[str]) -> None:
     """
-    Escribe una línea JSON en el archivo del día actual.
-    Si la carpeta no existe, la crea automáticamente.
+    Escribe múltiples líneas JSON en el archivo del día actual.
+    Abre y cierra el archivo UNA SOLA VEZ para todo el lote.
+    Esto es crítico para no bloquear el event loop con miles de registros.
     """
+    if not lineas:
+        return
     try:
         CARPETA_LOGS.mkdir(exist_ok=True)
         with open(_ruta_archivo_hoy(), "a", encoding="utf-8") as f:
-            f.write(json.dumps(evento, ensure_ascii=False) + "\n")
+            f.writelines(lineas)
     except Exception as error:
         logger.error("[Logger] Error escribiendo log: %s", error)
 
@@ -63,64 +63,57 @@ def registrar_ingesta(
     registros: list,
 ) -> None:
     """
-    Registra la llegada de datos — un registro JSON por cada placa.
-
-    Cada línea del archivo contendrá todos los datos disponibles
-    de esa placa en ese momento: posición, velocidad, evento, etc.
+    Registra la llegada de datos — un JSON por placa, en una sola escritura.
 
     Args:
         proveedor: Nombre del proveedor de origen.
-        cantidad:  Total de registros recibidos en el lote.
+        cantidad:  Total de registros en el lote.
         modo:      "activo" (polling) o "pasivo" (nos envían).
         registros: Lista de RegistroAVL con todos los datos.
     """
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    lineas: list[str] = []
 
-    # Un registro de resumen del lote
-    _escribir({
+    # 1 línea de resumen del lote
+    lineas.append(json.dumps({
         "timestamp": timestamp,
         "tipo": "ingesta_lote",
         "proveedor": proveedor,
         "modo": modo,
         "cantidad_total": cantidad,
-    })
+    }, ensure_ascii=False) + "\n")
 
-    # Un registro por cada placa con todos sus datos
+    # 1 línea por placa con todos sus datos
     for r in registros:
-        _escribir({
+        lineas.append(json.dumps({
             "timestamp": timestamp,
             "tipo": "ingesta",
             "proveedor": proveedor,
             "modo": modo,
-            # Identificación
             "placa": r.placa,
             "numero_serie": r.numero_serie,
-            # Posición
             "latitud": r.latitud,
             "longitud": r.longitud,
             "altitud": r.altitud,
-            # Movimiento
             "velocidad": r.velocidad,
             "rumbo": r.rumbo,
             "direccion": r.direccion,
-            # Estado
             "fecha": r.fecha,
             "ignicion": r.ignicion,
             "codigo_evento": r.codigo_evento,
             "alerta": r.alerta,
-            # Sensores
             "temperatura": r.temperatura,
             "humedad": r.humedad,
             "bateria": r.bateria,
-            # Odómetro
             "odometro": r.odometro,
-            # Viaje
             "numero_viaje": r.numero_viaje,
-            # Vehículo
             "tipo_vehiculo": r.tipo_vehiculo,
             "marca_vehiculo": r.marca_vehiculo,
             "modelo_vehiculo": r.modelo_vehiculo,
-        })
+        }, ensure_ascii=False) + "\n")
+
+    # UNA sola apertura de archivo para todo el lote
+    _escribir_lineas(lineas)
 
 
 def registrar_despacho(
@@ -132,24 +125,9 @@ def registrar_despacho(
     error: str = "",
     registros: list = None,
 ) -> None:
-    """
-    Registra el resultado del envío a un destino.
-
-    Guarda un resumen del lote (no repite todos los datos de cada
-    placa — eso ya quedó registrado en registrar_ingesta).
-
-    Args:
-        proveedor:  Nombre del proveedor de origen.
-        destino:    "recurso_confiable" o "simon".
-        cantidad:   Cantidad de registros enviados.
-        exitoso:    True si el envío fue exitoso.
-        id_trabajo: idJob devuelto por RC (si aplica).
-        error:      Mensaje de error (si aplica).
-        registros:  Lista de RegistroAVL (solo se guarda la placa para referencia).
-    """
+    """Registra el resultado del envío a un destino."""
     placas = [r.placa for r in (registros or []) if r.placa]
-
-    _escribir({
+    _escribir_lineas([json.dumps({
         "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "tipo": "despacho",
         "proveedor": proveedor,
@@ -158,8 +136,8 @@ def registrar_despacho(
         "resultado": "exitoso" if exitoso else "fallido",
         "id_trabajo": id_trabajo,
         "error": error,
-        "placas": placas[:50],  # Referencias para cruzar con los registros de ingesta
-    })
+        "placas": placas[:50],
+    }, ensure_ascii=False) + "\n"])
 
 
 def registrar_error(
@@ -167,30 +145,20 @@ def registrar_error(
     etapa: str,
     mensaje: str,
 ) -> None:
-    """
-    Registra un error en cualquier etapa del proceso.
-
-    Args:
-        proveedor: Nombre del proveedor involucrado.
-        etapa:     "normalizacion", "despacho_rc", "despacho_simon", etc.
-        mensaje:   Descripción del error.
-    """
-    _escribir({
+    """Registra un error en cualquier etapa del proceso."""
+    _escribir_lineas([json.dumps({
         "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "tipo": "error",
         "proveedor": proveedor,
         "etapa": etapa,
         "mensaje": mensaje,
-    })
+    }, ensure_ascii=False) + "\n"])
 
 
 def limpiar_logs_viejos(horas_retencion: int = 48) -> None:
     """
     Elimina archivos de log más antiguos que N horas.
     Se llama automáticamente al arrancar el servidor.
-
-    Args:
-        horas_retencion: Archivos más viejos que esto se eliminan.
     """
     if not CARPETA_LOGS.exists():
         return
@@ -205,7 +173,6 @@ def limpiar_logs_viejos(horas_retencion: int = 48) -> None:
             if fecha_archivo < limite:
                 archivo.unlink()
                 eliminados += 1
-                logger.info("[Logger] Archivo eliminado: %s", archivo.name)
         except Exception as error:
             logger.warning("[Logger] No se pudo procesar %s: %s", archivo.name, error)
 

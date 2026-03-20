@@ -73,9 +73,21 @@ class Configuracion:
 
         # ------------------------------------------------------------------
         # Zona horaria para normalización de fechas
-        # Ejemplos: -05:00 (México Centro), -03:00 (Argentina)
+        #
+        # RC_TIMEZONE_OFFSET:
+        #   RC requiere fechas en UTC puro (sin offset).
+        #   Default: +00:00 (UTC)
+        #
+        # SIMON_TIMEZONE_OFFSET:
+        #   Simon requiere fechas en hora local del prestador.
+        #   Default: -03:00 (Argentina)
+        #
+        # Los ingestores y el estandarizador usan RC_TIMEZONE_OFFSET
+        # para normalizar fechas. El cliente de Simon aplica su propio
+        # offset antes de enviar.
         # ------------------------------------------------------------------
-        self.ZONA_HORARIA: str = os.getenv("TIMEZONE_OFFSET", "-05:00")
+        self.ZONA_HORARIA: str = os.getenv("RC_TIMEZONE_OFFSET", "+00:00")
+        self.SIMON_ZONA_HORARIA: str = os.getenv("SIMON_TIMEZONE_OFFSET", "-03:00")
 
         # ------------------------------------------------------------------
         # Destino A — Recurso Confiable (SOAP/XML)
@@ -103,6 +115,11 @@ class Configuracion:
         self.SIMON_USUARIO_AVL: str = os.getenv("SIMON_USER_AVL", "avl")
         self.SIMON_ETIQUETA_ORIGEN: str = os.getenv("SIMON_SOURCE_TAG", "")
         self.SIMON_TOKEN_API: str = os.getenv("SIMON_API_TOKEN", "")
+        # Clave de integración que algunos endpoints de Simon requieren
+        self.SIMON_INTEGRATION_KEY: str = os.getenv("SIMON_INTEGRATION_KEY", "")
+        # Zona horaria para las fechas enviadas a Simon (hora local del prestador)
+        # Simon 4.0 requiere hora local, no UTC
+        self.SIMON_ZONA_HORARIA: str = os.getenv("SIMON_TIMEZONE_OFFSET", "-03:00")
 
         # ------------------------------------------------------------------
         # Ingestor activo — Control Group Gateway
