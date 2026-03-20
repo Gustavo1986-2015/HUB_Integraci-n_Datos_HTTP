@@ -1,5 +1,5 @@
 """
-hub_gui.py — Hub de Integración Satelital v2.1
+hub_gui.py — HUB de datos HTTP — Traductor Rusertech ® v2.1
 ================================================
 Compilar (el .exe queda en la raíz junto al .env):
     pyinstaller --onefile --windowed --icon=hub_icon.ico --distpath . --name "HubSatelital" hub_gui.py
@@ -228,15 +228,21 @@ class VentanaLogin(ctk.CTk):
             self.protocol("WM_DELETE_WINDOW", self._cancelar)
 
     def _construir(self):
-        # Ícono
-        frame_icon = ctk.CTkFrame(self, width=72, height=72, corner_radius=16,
-                                   fg_color=C_GRAD2)
-        frame_icon.pack(pady=(36, 8))
-        frame_icon.pack_propagate(False)
-        ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 36)).place(
-            relx=0.5, rely=0.5, anchor="center")
+        # Ícono — usa imagen real del .ico
+        try:
+            from PIL import Image as _PILImg
+            _pil = _PILImg.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((88, 88))
+            self._login_icon = ctk.CTkImage(light_image=_pil, dark_image=_pil, size=(88, 88))
+            ctk.CTkLabel(self, image=self._login_icon, text="").pack(pady=(28, 8))
+        except Exception:
+            frame_icon = ctk.CTkFrame(self, width=72, height=72, corner_radius=16,
+                                       fg_color=C_GRAD2)
+            frame_icon.pack(pady=(28, 8))
+            frame_icon.pack_propagate(False)
+            ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 36)).place(
+                relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(self, text="Hub Satelital",
+        ctk.CTkLabel(self, text="Rusertech Hub",
                      font=F_TITULO, text_color=C_TEXTO).pack()
         ctk.CTkLabel(self, text="Ingresá tus credenciales de acceso",
                      font=F_PEQUENA, text_color=C_APAGADO).pack(pady=(4, 24))
@@ -475,7 +481,7 @@ class HubApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
-        self.title("Hub de Integración Satelital")
+        self.title("HUB de datos HTTP — Traductor Rusertech ®")
         self.geometry("1200x740")
         self.minsize(1000, 640)
         self.configure(fg_color=C_BG_TOP)
@@ -489,6 +495,7 @@ class HubApp(ctk.CTk):
         self.after(200, self._cargar_todo)
         self._actualizar_metricas()
         self._actualizar_logs()
+        self._ciclo_ngrok()  # Detectar ngrok si está corriendo
         self.protocol("WM_DELETE_WINDOW", self._al_cerrar)
 
     # ------------------------------------------------------------------ #
@@ -509,17 +516,23 @@ class HubApp(ctk.CTk):
         panel.grid_propagate(False)
         panel.grid_rowconfigure(8, weight=1)
 
-        # Ícono con gradiente simulado
-        frame_icon = ctk.CTkFrame(panel, width=68, height=68, corner_radius=16,
-                                   fg_color=C_GRAD2)
-        frame_icon.grid(row=0, column=0, pady=(32, 6))
-        frame_icon.grid_propagate(False)
-        ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 34),
-                     text_color=C_BG_TOP).place(relx=0.5, rely=0.5, anchor="center")
+        # Ícono — usa imagen real del .ico
+        try:
+            from PIL import Image as _PILImg2
+            _pil2 = _PILImg2.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((76, 76))
+            self._sidebar_icon = ctk.CTkImage(light_image=_pil2, dark_image=_pil2, size=(76, 76))
+            ctk.CTkLabel(panel, image=self._sidebar_icon, text="").grid(row=0, column=0, pady=(20, 6))
+        except Exception:
+            frame_icon = ctk.CTkFrame(panel, width=68, height=68, corner_radius=16,
+                                       fg_color=C_GRAD2)
+            frame_icon.grid(row=0, column=0, pady=(32, 6))
+            frame_icon.grid_propagate(False)
+            ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 34),
+                         text_color=C_BG_TOP).place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(panel, text="Hub Satelital",
+        ctk.CTkLabel(panel, text="Rusertech Hub",
                      font=F_TITULO, text_color=C_TEXTO).grid(row=1, column=0)
-        ctk.CTkLabel(panel, text="Integración AVL",
+        ctk.CTkLabel(panel, text="Traductor de datos AVL",
                      font=F_PEQUENA, text_color=C_APAGADO).grid(row=2, column=0, pady=(0, 20))
         ctk.CTkFrame(panel, height=1, fg_color=C_BORDE).grid(
             row=3, column=0, sticky="ew", padx=16, pady=4)
@@ -558,10 +571,49 @@ class HubApp(ctk.CTk):
             ctk.CTkLabel(fi, text=lbl, font=F_PEQUENA, text_color=C_APAGADO).pack()
             self._metricas[k] = v
 
-        ctk.CTkLabel(panel, text="http://localhost:8000",
-                     font=F_PEQUENA, text_color=C_GRAD3).grid(row=7, column=0, pady=4)
+        # Botón Abrir Dashboard
+        ctk.CTkButton(
+            panel, text="🌐  Abrir Dashboard",
+            height=32, width=235, font=F_PEQUENA,
+            fg_color="transparent", hover_color=C_SURF2,
+            border_color=C_BORDE, border_width=1,
+            text_color=C_GRAD3, corner_radius=8,
+            command=lambda: __import__("webbrowser").open("http://localhost:8000/dashboard")
+        ).grid(row=7, column=0, padx=20, pady=(4, 2))
+
+        # Panel ngrok
+        frame_ngrok = ctk.CTkFrame(panel, fg_color=C_SURF2, corner_radius=8)
+        frame_ngrok.grid(row=8, column=0, padx=16, pady=(4, 2), sticky="ew")
+        frame_ngrok.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(frame_ngrok, text="ngrok",
+                     font=("Inter", 10, "bold"), text_color=C_APAGADO,
+                     anchor="w").grid(row=0, column=0, sticky="w", padx=10, pady=(6, 0))
+
+        self._lbl_ngrok = ctk.CTkLabel(
+            frame_ngrok, text="No detectado",
+            font=F_MONO, text_color=C_APAGADO,
+            cursor="hand2", wraplength=220, anchor="w",
+        )
+        self._lbl_ngrok.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 2))
+        self._lbl_ngrok.bind("<Button-1>", self._copiar_url_ngrok)
+
+        self._lbl_ngrok_hint = ctk.CTkLabel(
+            frame_ngrok, text="",
+            font=("Inter", 9), text_color=C_APAGADO, anchor="w",
+        )
+        self._lbl_ngrok_hint.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 6))
+
+        self._ngrok_url: str = ""
+
+        # Uptime
+        self._lbl_uptime = ctk.CTkLabel(panel, text="",
+                                         font=F_PEQUENA, text_color=C_APAGADO)
+        self._lbl_uptime.grid(row=9, column=0, pady=(2, 2))
+        self._uptime_inicio: float = 0.0
+
         ctk.CTkLabel(panel, text="v2.1.0",
-                     font=F_PEQUENA, text_color=C_APAGADO).grid(row=9, column=0, pady=(0, 16))
+                     font=F_PEQUENA, text_color=C_APAGADO).grid(row=10, column=0, pady=(0, 12))
 
     def _panel_derecho(self):
         self._tabs = ctk.CTkTabview(
@@ -635,7 +687,7 @@ class HubApp(ctk.CTk):
             t = col if col else parent
             r = rh if rh is not None else t.grid_size()[1]
             ctk.CTkLabel(t, text=label, font=F_PEQUENA, text_color=C_TEXTO,
-                         anchor="w").grid(row=r, column=idx, sticky="w", padx=16, pady=(8, 0))
+                         anchor="w").grid(row=r, column=idx, sticky="w", padx=16, pady=(4, 0))
             var = ctk.BooleanVar()
             frame_sw = ctk.CTkFrame(t, fg_color="transparent")
             frame_sw.grid(row=r+1, column=idx, sticky="w", padx=16, pady=(2, 8))
@@ -706,16 +758,17 @@ class HubApp(ctk.CTk):
 
         # ── General ──────────────────────────────────────────────────────
         s = sec("🔧  General", "Servidor y comportamiento")
+        # DRY_RUN en su propia fila (switch no mezcla bien con dropdown en misma fila)
+        sw(s, "DRY_RUN", "Modo Prueba (sin envíos reales)")
+        # Los 3 dropdowns alineados juntos en 2 filas
         g1 = gr(s)
-        sw(g1, "DRY_RUN", "Modo Prueba (sin envíos reales)", col=g1, idx=0, rh=0)
         op(g1, "LOG_LEVEL", "Nivel de logs",
-           ["INFO", "DEBUG", "WARNING", "ERROR"], col=g1, idx=1, rh=0)
-        g2 = gr(s)
-        op(g2, "LOG_RETENTION_HOURS", "Retención de logs (horas)",
+           ["INFO", "DEBUG", "WARNING", "ERROR"], col=g1, idx=0, rh=0)
+        op(g1, "LOG_RETENTION_HOURS", "Retención de logs (horas)",
            ["1", "2", "4", "6", "12", "24", "48", "72", "168"],
-           col=g2, idx=0, rh=0)
-        op(g2, "COLA_MAX_HORAS", "Máx. horas en cola",
-           ["6", "12", "24", "48"], col=g2, idx=1, rh=0)
+           col=g1, idx=1, rh=0)
+        op(s, "COLA_MAX_HORAS", "Máx. horas en cola de reintento",
+           ["6", "12", "24", "48"])
 
         # ── Recurso Confiable ─────────────────────────────────────────────
         s_rc = sec("📡  Recurso Confiable", "Protocolo SOAP/XML — D-TI-15 v14")
@@ -727,14 +780,30 @@ class HubApp(ctk.CTk):
         pw(g_rc, "RC_PASSWORD", "Contraseña", col=g_rc, idx=1, rh=0)
 
         # ── Simon 4.0 ─────────────────────────────────────────────────────
-        s_si = sec("📡  Simon 4.0", "REST/JSON — rpaIntegrationKey como parámetro en la URL")
+        s_si = sec("📡  Simon 4.0", "Destino REST/JSON — Recibe los registros AVL normalizados")
         sw(s_si, "SEND_TO_SIMON", "Activo")
-        tx(s_si, "SIMON_BASE_URL", "URL del endpoint",
-           "https://simon-pre-webapi.assistcargo.com/RPAAvlRecord/Add", mono=True)
+
+        # Explicación visual de cómo funciona la autenticación
+        info_si = ctk.CTkFrame(s_si, fg_color=C_SURF, corner_radius=6)
+        info_si.grid(row=s_si.grid_size()[1], column=0, sticky="ew", padx=16, pady=(0, 10))
+        ctk.CTkLabel(info_si, text="Cómo funciona el envío:",
+                     font=("Inter", 11, "bold"), text_color=C_APAGADO,
+                     anchor="w").pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(info_si,
+                     text="POST {URL del endpoint}?rpaIntegrationKey={tu clave}",
+                     font=F_MONO, text_color=C_GRAD3, anchor="w").pack(fill="x", padx=10, pady=(0, 4))
+        ctk.CTkLabel(info_si,
+                     text="El Hub completa la URL automáticamente usando los campos de abajo.",
+                     font=F_PEQUENA, text_color=C_APAGADO, anchor="w").pack(fill="x", padx=10, pady=(0, 8))
+
+        tx(s_si, "SIMON_BASE_URL", "URL base del endpoint Simon",
+           "https://simon-pre-webapi.assistcargo.com/ReceiveAvlRecords", mono=True)
         g_si = gr(s_si)
-        tx(g_si, "SIMON_USER_AVL", "Usuario AVL", "Rusertech", col=g_si, idx=0, rh=0)
+        tx(g_si, "SIMON_USER_AVL", "Usuario AVL (campo User_avl en cada registro)",
+           "Rusertech", col=g_si, idx=0, rh=0)
         pw(g_si, "SIMON_INTEGRATION_KEY",
-           "Integration Key (rpaIntegrationKey)", col=g_si, idx=1, rh=0)
+           "Integration Key (se agrega a la URL como ?rpaIntegrationKey=...)",
+           col=g_si, idx=1, rh=0)
 
         # ── Zona horaria ──────────────────────────────────────────────────
         s_tz = sec("🕐  Zona Horaria", "RC requiere UTC — Simon requiere hora local")
@@ -1068,7 +1137,7 @@ class HubApp(ctk.CTk):
             self._iniciar()
 
     def _iniciar(self):
-        self._log("INFO", "Iniciando Hub de Integración Satelital...")
+        self._log("INFO", "Iniciando HUB de datos HTTP — Traductor Rusertech ®...")
         self._btn.configure(state="disabled", text="Iniciando...")
         threading.Thread(target=self._run_iniciar, daemon=True).start()
 
@@ -1079,7 +1148,9 @@ class HubApp(ctk.CTk):
 
     def _post_iniciar(self):
         self._btn.configure(state="normal")
+        self._uptime_inicio = __import__("time").time()
         self._actualizar_boton()
+        self._ciclo_uptime()
 
     def _post_error(self):
         self._btn.configure(state="normal", text="▶  INICIAR",
@@ -1100,6 +1171,8 @@ class HubApp(ctk.CTk):
         self._btn.configure(state="normal")
         self._actualizar_boton()
         self._log("INFO", "Hub detenido.")
+        self._uptime_inicio = 0.0
+        self._lbl_uptime.configure(text="")
         for v in self._metricas.values():
             v.configure(text="0", text_color=C_TEXTO)
 
@@ -1153,6 +1226,85 @@ class HubApp(ctk.CTk):
     # ------------------------------------------------------------------ #
     # Métricas                                                            #
     # ------------------------------------------------------------------ #
+
+    def _copiar_url_ngrok(self, event=None):
+        """Copia la URL de ngrok al portapapeles al hacer click."""
+        if self._ngrok_url:
+            self.clipboard_clear()
+            self.clipboard_append(self._ngrok_url)
+            self._lbl_ngrok_hint.configure(
+                text="✓ Copiado al portapapeles", text_color=C_VERDE)
+            self.after(2500, lambda: self._lbl_ngrok_hint.configure(
+                text="Click para copiar", text_color=C_APAGADO))
+
+    def _ciclo_ngrok(self):
+        """
+        Consulta la API local de ngrok (puerto 4040) para obtener la URL activa.
+        ngrok expone http://localhost:4040/api/tunnels cuando está corriendo.
+        Se ejecuta cada 5 segundos.
+        """
+        threading.Thread(target=self._fetch_ngrok, daemon=True).start()
+        self.after(5000, self._ciclo_ngrok)
+
+    def _fetch_ngrok(self):
+        """Descarga el estado de ngrok en un hilo aparte."""
+        try:
+            r = httpx.get("http://localhost:4040/api/tunnels", timeout=2)
+            tunnels = r.json().get("tunnels", [])
+            # Buscar el túnel HTTPS
+            url = ""
+            for t in tunnels:
+                if t.get("proto") == "https":
+                    url = t.get("public_url", "")
+                    break
+            if not url and tunnels:
+                url = tunnels[0].get("public_url", "")
+
+            if url:
+                self._ngrok_url = url
+                endpoint = f"{url}/ingresar/{{proveedor}}"
+                self.after(0, lambda u=url, e=endpoint: self._mostrar_ngrok(u, e))
+            else:
+                self._ngrok_url = ""
+                self.after(0, self._ocultar_ngrok)
+
+        except Exception:
+            self._ngrok_url = ""
+            self.after(0, self._ocultar_ngrok)
+
+    def _mostrar_ngrok(self, url: str, endpoint: str):
+        """Actualiza el panel ngrok con la URL activa."""
+        # Mostrar solo el host para no truncar
+        host = url.replace("https://", "").replace("http://", "")
+        self._lbl_ngrok.configure(
+            text=host,
+            text_color=C_VERDE,
+        )
+        self._lbl_ngrok_hint.configure(
+            text="Click para copiar URL completa",
+            text_color=C_APAGADO,
+        )
+
+    def _ocultar_ngrok(self):
+        """Muestra 'No detectado' cuando ngrok no está corriendo."""
+        self._lbl_ngrok.configure(text="No detectado", text_color=C_APAGADO)
+        self._lbl_ngrok_hint.configure(text="Ejecutar: ngrok http 8000", text_color=C_APAGADO)
+
+    def _ciclo_uptime(self):
+        """Actualiza el label de uptime cada segundo mientras el Hub está corriendo."""
+        if not _servidor.en_ejecucion or self._uptime_inicio == 0:
+            return
+        elapsed = int(time.time() - self._uptime_inicio)
+        h, rem = divmod(elapsed, 3600)
+        m, s = divmod(rem, 60)
+        if h > 0:
+            texto = f"↑ {h}h {m:02d}m corriendo"
+        elif m > 0:
+            texto = f"↑ {m}m {s:02d}s corriendo"
+        else:
+            texto = f"↑ {s}s corriendo"
+        self._lbl_uptime.configure(text=texto, text_color=C_VERDE)
+        self.after(1000, self._ciclo_uptime)
 
     def _actualizar_metricas(self):
         if _servidor.en_ejecucion:

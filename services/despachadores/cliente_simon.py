@@ -140,8 +140,14 @@ async def despachar(
         logger.error("[Simon] SIMON_BASE_URL no configurado. Abortando envío.")
         return False
 
-    # La URL configurada ES el endpoint completo — no agregar sufijos
-    endpoint = url_base.rstrip("/")
+    # Simon requiere la integration key como query param en la URL:
+    # POST /ReceiveAvlRecords?rpaIntegrationKey=XXXX
+    base = url_base.rstrip("/")
+    if integration_key:
+        sep = "&" if "?" in base else "?"
+        endpoint = f"{base}{sep}rpaIntegrationKey={integration_key}"
+    else:
+        endpoint = base
 
     # Aplicar overrides de metadatos si se proporcionaron
     if usuario_avl or etiqueta_origen:
@@ -175,10 +181,7 @@ async def despachar(
     }
     if token_api:
         encabezados["Authorization"] = f"Bearer {token_api}"
-    if integration_key:
-        # Simon puede requerir la integration key como header o parámetro
-        encabezados["X-Integration-Key"] = integration_key
-        encabezados["IntegrationKey"] = integration_key
+    # La integration key ya va en la URL como query param (ver arriba)
 
     todo_exitoso = True
 

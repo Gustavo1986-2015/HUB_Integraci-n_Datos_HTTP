@@ -1,455 +1,289 @@
-# Hub de Integración Satelital — Documentación
+# Documentación Técnica — HUB de datos HTTP — Traductor Rusertech ® v2.1
 
-## Índice
-
-1. [¿Qué es este Hub?](#1-qué-es-este-hub)
-2. [Estructura del proyecto](#2-estructura-del-proyecto)
-3. [Instalación local](#3-instalación-local)
-4. [Variables de entorno (.env)](#4-variables-de-entorno-env)
-5. [Routing — quién va a dónde](#5-routing--quién-va-a-dónde)
-6. [Endpoints disponibles](#6-endpoints-disponibles)
-7. [Modo Pasivo — el prestador nos envía datos](#7-modo-pasivo--el-prestador-nos-envía-datos)
-8. [Modo Activo — nosotros consultamos la API](#8-modo-activo--nosotros-consultamos-la-api)
-9. [El modelo RegistroAVL](#9-el-modelo-registroavl)
-10. [Limpieza de placas](#10-limpieza-de-placas)
-11. [Destino A — Recurso Confiable](#11-destino-a--recurso-confiable)
-12. [Destino B — Simon 4.0](#12-destino-b--simon-40)
-13. [Ingestor — Control Group](#13-ingestor--control-group)
-14. [Dashboard de monitoreo](#14-dashboard-de-monitoreo)
-15. [UI de configuración](#15-ui-de-configuración)
-16. [Logs en archivo JSON](#16-logs-en-archivo-json)
-17. [Modo Prueba (sin envíos reales)](#17-modo-prueba-sin-envíos-reales)
-18. [Deploy en Railway](#18-deploy-en-railway)
-19. [Agregar un proveedor pasivo](#19-agregar-un-proveedor-pasivo)
-20. [Agregar un ingestor activo](#20-agregar-un-ingestor-activo)
-21. [Errores frecuentes](#21-errores-frecuentes)
-
----
-
-## 1. ¿Qué es este Hub?
-
-Un **enrutador inteligente de datos satelitales**. Recibe o consulta pulsos GPS
-de prestadores AVL, los convierte a un modelo único y los envía a los destinos
-configurados.
+## Arquitectura
 
 ```
-FUENTES
-  ├── Prestadores que nos envían  →  POST /ingresar/{proveedor}
-  └── APIs que consultamos        →  polling automático (Control Group, etc.)
-                ↓
-       HUB DE INTEGRACIÓN
-  (normaliza, limpia, enruta, loguea, monitorea)
-                ↓
-DESTINOS
-  ├── Recurso Confiable  →  SOAP/XML
-  └── Simon 4.0          →  REST/JSON
-```
+FUENTES → HUB → DESTINOS
 
-**Regla fundamental:** ningún registro se descarta aunque no tenga GPS.
-Un evento de pánico o alarma es valioso sin coordenadas.
-
----
-
-## 2. Estructura del proyecto
-
-```
-hub_satelital/
-│
-├── main.py                          # Punto de entrada del servidor
-├── core/
-│   └── config.py                    # Lee variables del .env
-│
-├── services/
-│   ├── estandarizador.py            # Convierte cualquier JSON → RegistroAVL
-│   ├── metricas.py                  # Contadores en memoria para el dashboard
-│   ├── planificador.py              # Ejecuta ingestores cada N segundos
-│   ├── logger_archivo.py            # Escribe logs JSON diarios en /logs
-│   ├── dashboard.html               # Panel de monitoreo visual
-│   ├── configuracion.html           # UI web para configurar el Hub
-│   │
-│   ├── despachadores/
-│   │   ├── cliente_rc.py            # Envía a Recurso Confiable (SOAP/XML)
-│   │   └── cliente_simon.py         # Envía a Simon 4.0 (REST/JSON)
-│   │
-│   └── ingestores/
-│       ├── base.py                  # Contrato mínimo para ingestores
-│       └── control_group.py         # Consulta el Gateway de Control Group
-│
-├── logs/                            # Creada automáticamente — logs JSON diarios
-├── .env                             # Configuración local (NO sube a GitHub)
-├── .env.example                     # Plantilla de configuración
-├── requirements.txt
-├── Procfile                         # Para Railway
-├── runtime.txt                      # Para Railway
-└── DOCUMENTACION.md
+Modo activo:  Planificador → ingestores/control_group.py → normalizar → despachar
+Modo pasivo:  POST /ingresar/{proveedor} → normalizar → despachar
+Cola:         Si falla → cola/pendientes_*.json → reintento próximo ciclo
 ```
 
 ---
 
-## 3. Instalación local
+## Instalación local
 
 ```bash
-# 1. Instalar dependencias
+# Clonar el repositorio
+git clone https://github.com/Gustavo1986-2015/HUB_Integraci-n_Datos_HTTP
+cd HUB_Integraci-n_Datos_HTTP
+
+# Instalar dependencias
 pip install -r requirements.txt
 
-# 2. Crear configuración
-cp .env.example .env
-# Editar .env con tus credenciales
+# Configurar
+cp .env.example.new .env
+# Editar .env con los valores reales
 
-# 3. Levantar servidor
-uvicorn main:app --reload --port 8000
+# Ejecutar con GUI
+python hub_gui.py
+
+# O ejecutar sin GUI
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
-
-URLs disponibles:
-- **Dashboard:**     http://localhost:8000/dashboard
-- **Configuración:** http://localhost:8000/configuracion
-- **Estado:**        http://localhost:8000/estado
 
 ---
 
-## 4. Variables de entorno (.env)
+## Compilar el ejecutable (.exe)
 
-| Variable | Descripción | Por defecto |
-|---|---|---|
-| `PORT` | Puerto del servidor | `8000` |
-| `LOG_LEVEL` | DEBUG, INFO, WARNING, ERROR | `INFO` |
-| `LOG_RETENTION_HOURS` | Horas que se conservan los logs en disco | `48` |
-| `DRY_RUN` | `true` = sin envíos reales | `false` |
-| `HUB_INGEST_TOKEN` | Token de seguridad (vacío = libre) | vacío |
-| `TIMEZONE_OFFSET` | Offset de zona horaria para fechas | `-05:00` |
-| | | |
-| `SEND_TO_RECURSO_CONFIABLE` | Activar destino RC | `false` |
-| `RC_SOAP_URL` | URL del servicio SOAP de RC | URL producción |
-| `RC_USER_ID` | Usuario SOAP de RC | — |
-| `RC_PASSWORD` | Contraseña SOAP de RC | — |
-| | | |
-| `SEND_TO_SIMON` | Activar destino Simon | `false` |
-| `SIMON_BASE_URL` | URL base del HubReceptor Simon | — |
-| `SIMON_USER_AVL` | Campo User_avl para Simon | `avl` |
-| `SIMON_SOURCE_TAG` | Campo SourceTag para Simon | vacío |
-| `SIMON_API_TOKEN` | Bearer token fijo de Simon | — |
-| | | |
-| `DESTINOS_{PROVEEDOR}` | Destinos para un proveedor específico | — |
-| `DESTINOS_DEFAULT` | Destinos fallback para todos | — |
-| | | |
-| `CONTROL_GROUP_ENABLED` | Activar ingestor Control Group | `false` |
-| `CONTROL_GROUP_URL` | URL del gateway CG | URL producción |
-| `CONTROL_GROUP_USER` | Usuario del gateway | — |
-| `CONTROL_GROUP_PASS` | Contraseña del gateway | — |
-| `CONTROL_GROUP_INTERVAL` | Segundos entre consultas | `60` |
+El `.exe` debe quedar en la raíz del proyecto, junto al `.env`:
 
----
-
-## 5. Routing — quién va a dónde
-
-Cada proveedor puede enviar sus datos a un destino diferente. Solo variables de entorno, sin tocar código.
-
-**Prioridad:**
-```
-1. DESTINOS_{NOMBRE_PROVEEDOR}  →  específico para ese proveedor
-2. DESTINOS_DEFAULT             →  fallback para todos
-3. SEND_TO_RC + SEND_TO_SIMON   →  modo básico
-```
-
-**Ejemplos en .env:**
 ```bash
-DESTINOS_CONTROL_GROUP=recurso_confiable
-DESTINOS_MI_PROVEEDOR=simon
-DESTINOS_OTRO=recurso_confiable,simon
-DESTINOS_DEFAULT=simon
+pip install pyinstaller
+pyinstaller --onefile --windowed --icon=hub_icon.ico --distpath . --name "HubSatelital" hub_gui.py
 ```
+
+La carpeta `build/` se puede borrar después. El `.spec` también.
 
 ---
 
-## 6. Endpoints disponibles
+## Variables de entorno (.env)
 
-| Método | Ruta | Descripción |
+### General
+
+| Variable | Default | Descripción |
 |---|---|---|
-| `POST` | `/ingresar/{proveedor}` | Recibir pulsos GPS |
-| `GET` | `/metricas` | Métricas JSON en tiempo real |
-| `GET` | `/dashboard` | Panel de monitoreo HTML |
-| `GET` | `/configuracion` | UI de configuración |
-| `GET` | `/configuracion/datos` | Leer .env como JSON |
-| `POST` | `/configuracion/guardar` | Guardar nuevas variables en .env |
-| `GET` | `/estado` | Health check |
+| `PORT` | `8000` | Puerto del servidor (Railway lo inyecta automáticamente) |
+| `LOG_LEVEL` | `INFO` | INFO / DEBUG / WARNING / ERROR |
+| `LOG_RETENTION_HOURS` | `48` | Horas de retención de archivos de log |
+| `COLA_MAX_HORAS` | `24` | Horas máximas de espera en la cola de reintentos |
+| `DRY_RUN` | `false` | `true` = simular sin enviar |
 
----
+### Seguridad
 
-## 7. Modo Pasivo — el prestador nos envía datos
-
-El prestador configura su plataforma para enviarnos un POST:
-```
-POST https://tu-hub.railway.app/ingresar/{nombre_proveedor}
-Content-Type: application/json
-```
-
-Acepta un evento único `{}` o un lote `[{}, {}, ...]`.
-
-Los campos pueden estar en español o en inglés — el estandarizador los resuelve automáticamente mediante la tabla `ALIASES_CAMPOS` en `estandarizador.py`.
-
-Para agregar soporte a un nuevo prestador: ver sección 19.
-
----
-
-## 8. Modo Activo — nosotros consultamos la API
-
-Para prestadores que no envían datos. El planificador ejecuta `consultar()` de cada ingestor en intervalos configurables.
-
-Ingestores disponibles: **Control Group** (ver sección 13).
-
-Para agregar un nuevo ingestor: ver sección 20.
-
----
-
-## 9. El modelo RegistroAVL
-
-Modelo interno único. Todo dato que entra se convierte a `RegistroAVL`.
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `placa` | string | Placa limpia sin caracteres especiales |
-| `latitud` | float o None | Latitud decimal. None si no hay GPS |
-| `longitud` | float o None | Longitud decimal. None si no hay GPS |
-| `fecha` | string | ISO 8601: `YYYY-MM-DDTHH:MM:SS±HH:MM` |
-| `velocidad` | string | Velocidad en km/h |
-| `codigo_evento` | string | Código del evento AVL |
-| `ignicion` | string | `"1"`=encendido, `"0"`=apagado |
-| `temperatura` | string | Temperatura en °C |
-| `bateria` | string | Nivel de batería 0-100 |
-| `numero_serie` | string | Número de serie del GPS |
-| `numero_viaje` | string | Número de viaje del embarcador |
-| `tipo_vehiculo` | string | Tipo: Tracto, Camión, etc. |
-| `marca_vehiculo` | string | Marca del vehículo |
-| `modelo_vehiculo` | string | Modelo del vehículo |
-
----
-
-## 10. Limpieza de placas
-
-Todas las placas se limpian automáticamente antes de ser enviadas a cualquier destino. Función `limpiar_placa()` en `estandarizador.py`.
-
-```
-"ABC-123"  →  "ABC123"
-"XYZ 456"  →  "XYZ456"
-"ÑOP.789"  →  "NOP789"
-"A1B 2C3"  →  "A1B2C3"
-```
-
-Se aplica tanto a datos recibidos (modo pasivo) como a datos consultados (modo activo). No requiere configuración adicional.
-
----
-
-## 11. Destino A — Recurso Confiable
-
-**Protocolo:** SOAP/XML — D-TI-15 v14
-**URL:** `http://gps.rcontrol.com.mx/Tracking/wcf/RCService.svc`
-
-Flujo: `GetUserToken` → token 24 horas (con caché automático) → `GPSAssetTracking`
-
-Todos los registros del lote se envían en un único envelope SOAP (envío en bloque). Las fechas se envían sin offset de timezone (RC requiere UTC puro).
-
-**Credenciales:** solicitar a soporte@recursoconfiable.com con nombre y RFC de la empresa.
-
----
-
-## 12. Destino B — Simon 4.0
-
-**Protocolo:** REST/JSON
-**Endpoint:** `POST /ReceiveAvlRecords`
-
-Simon entrega un token Bearer fijo (no expira). Se incluye en cada request como `Authorization: Bearer <SIMON_API_TOKEN>`. El body es siempre una lista JSON.
-
----
-
-## 13. Ingestor — Control Group
-
-**Protocolo:** XML sobre HTTP (NO SOAP)
-**URL:** `https://gateway.control-group.com.ar/gateway.asp`
-
-Modo INCREMENTAL: el servidor recuerda la última consulta y solo devuelve eventos nuevos.
-
-La respuesta tiene estructura dinámica — los IDs de columna pueden cambiar. El parser construye el mapa dinámicamente en cada respuesta usando los nombres de columna (que son constantes).
-
-Si una fila no trae el valor de la placa, se usa el **predeterminado** declarado en `<columnas>`. Si tampoco hay predeterminado, se usa el `idRastreable` como fallback.
-
-**Configuración:**
-```bash
-CONTROL_GROUP_ENABLED=true
-CONTROL_GROUP_USER=assist
-CONTROL_GROUP_PASS=cargo
-CONTROL_GROUP_INTERVAL=60
-DESTINOS_CONTROL_GROUP=recurso_confiable
-```
-
----
-
-## 14. Dashboard de monitoreo
-
-Disponible en: `http://localhost:8000/dashboard`
-
-Se actualiza automáticamente cada 5 segundos.
-
-| Sección | Contenido |
+| Variable | Descripción |
 |---|---|
-| Resumen General | Tiempo activo, ingestados, despachados OK/fallidos |
-| Estado de Destinos | Por destino: enviados, fallidos, tasa de éxito |
-| Proveedores AVL | Por proveedor: recibidos, normalizados, placas recientes |
-| Log de Actividad | Últimas 200 entradas en tiempo real |
+| `HUB_INGEST_TOKEN` | Bearer token para `POST /ingresar/{proveedor}`. Vacío = sin autenticación |
+| `CONFIG_USUARIO` | Usuario para el login de la GUI y la UI web `/configuracion` |
+| `CONFIG_CLAVE` | Contraseña del login |
+
+### Recurso Confiable
+
+| Variable | Descripción |
+|---|---|
+| `SEND_TO_RECURSO_CONFIABLE` | `true` / `false` |
+| `RC_SOAP_URL` | `http://gps.rcontrol.com.mx/Tracking/wcf/RCService.svc` |
+| `RC_USER_ID` | Usuario de RC |
+| `RC_PASSWORD` | Contraseña de RC |
+| `RC_TIMEZONE_OFFSET` | `+00:00` — RC requiere UTC |
+
+### Simon 4.0
+
+| Variable | Descripción |
+|---|---|
+| `SEND_TO_SIMON` | `true` / `false` |
+| `SIMON_BASE_URL` | URL base: `https://simon-pre-webapi.assistcargo.com/ReceiveAvlRecords` |
+| `SIMON_INTEGRATION_KEY` | Clave de integración — se agrega como `?rpaIntegrationKey=...` |
+| `SIMON_USER_AVL` | Usuario AVL dentro de Simon |
+| `SIMON_TIMEZONE_OFFSET` | `-03:00` — Simon requiere hora local Argentina |
+
+### Control Group
+
+| Variable | Descripción |
+|---|---|
+| `CONTROL_GROUP_ENABLED` | `true` / `false` |
+| `CONTROL_GROUP_URL` | `https://gateway.control-group.com.ar/gateway.asp` |
+| `CONTROL_GROUP_USER` | Usuario del gateway |
+| `CONTROL_GROUP_PASS` | Contraseña del gateway |
+| `CONTROL_GROUP_INTERVAL` | Segundos entre consultas (mínimo recomendado: 60) |
+
+### Routing
+
+| Variable | Valores posibles | Descripción |
+|---|---|---|
+| `DESTINOS_CONTROL_GROUP` | `recurso_confiable` / `simon` / `recurso_confiable,simon` | A dónde van los datos de CG |
+| `DESTINOS_{NOMBRE}` | idem | A dónde van los datos del proveedor pasivo `{nombre}` |
+| `DESTINOS_DEFAULT` | idem | Fallback para proveedores sin configuración específica |
 
 ---
 
-## 15. UI de configuración
+## Endpoints
 
-Disponible en: `http://localhost:8000/configuracion`
+### POST /ingresar/{proveedor}
 
-Permite configurar el Hub sin editar el `.env` manualmente.
+Recibe eventos GPS de un prestador en modo pasivo.
 
-Secciones:
-- **General:** modo prueba, logs, seguridad
-- **Destinos:** RC y Simon con sus credenciales
-- **APIs:** ingestores activos y sus credenciales
-- **Routing:** a qué destino van los datos de cada proveedor
+**Autenticación:** `Authorization: Bearer {HUB_INGEST_TOKEN}` (opcional si la variable está vacía)
 
-El botón **Guardar** escribe el `.env` directamente. El servidor debe reiniciarse para aplicar los cambios.
+**Body:** JSON — objeto o lista de objetos con campos AVL
 
----
-
-## 16. Logs en archivo JSON
-
-El Hub genera un archivo de log por día en la carpeta `logs/`:
-```
-logs/hub_2026-03-18.json
-```
-
-Cada línea es un evento JSON independiente (formato JSONL):
 ```json
-{"timestamp": "2026-03-18T09:44:11", "tipo": "ingesta", "proveedor": "control_group", "modo": "activo", "cantidad": 680, "placas": ["ABC123", "XYZ456"]}
-{"timestamp": "2026-03-18T09:44:12", "tipo": "despacho", "proveedor": "control_group", "destino": "recurso_confiable", "cantidad": 680, "resultado": "exitoso", "id_trabajo": "1773834271061"}
-```
-
-**Retención:** configurable con `LOG_RETENTION_HOURS` en `.env` (por defecto 48 horas). Los archivos más viejos se eliminan automáticamente al arrancar el servidor.
-
----
-
-## 17. Modo Prueba (sin envíos reales)
-
-```bash
-DRY_RUN=true
-```
-
-Con esto activo: normaliza, loguea, registra métricas y escribe logs de archivo, pero **no realiza ninguna llamada HTTP** a RC ni Simon. El dashboard muestra todo como si hubiera envíos reales.
-
----
-
-## 18. Deploy en Railway
-
-1. Subir el proyecto a GitHub
-2. En [railway.app](https://railway.app): **New Project → Deploy from GitHub**
-3. En **Variables**, cargar cada variable del `.env`
-4. Railway detecta el `Procfile` y despliega automáticamente
-
-Railway inyecta `PORT` automáticamente.
-
----
-
-## 19. Agregar un proveedor pasivo
-
-Para prestadores que **nos envían** sus datos:
-
-**Paso 1 — Identificar campos del prestador**
-```json
-{"patente": "ABC123", "lat": -34.6, "lng": -58.4, "vel": 60}
-```
-
-**Paso 2 — Agregar aliases en `services/estandarizador.py`**
-```python
-ALIASES_CAMPOS = {
-    "placa":    [..., "patente"],
-    "latitud":  [..., "lat"],
-    "longitud": [..., "lng"],
-    "velocidad":[..., "vel"],
+{
+  "placa": "ABC123",
+  "latitud": -34.54113,
+  "longitud": -58.47998,
+  "velocidad": "60",
+  "fecha": "2024-03-15T10:30:00",
+  "codigo_evento": "1"
 }
 ```
 
-**Paso 3 — Configurar destino en `.env`**
-```bash
-DESTINOS_NOMBRE_PROVEEDOR=simon
-```
+**Respuesta:** `202 Accepted` — el procesamiento ocurre en segundo plano.
 
-**Paso 4 — Dar URL al prestador**
-```
-POST https://tu-hub.railway.app/ingresar/nombre_proveedor
-```
+### GET /metricas
 
-No se crea ningún archivo de código nuevo.
+Métricas en tiempo real. Consumido por la GUI y el dashboard cada 5s.
 
----
+### GET /estado
 
-## 20. Agregar un ingestor activo
+Health check. Retorna estado del Hub, ingestores activos y cola de pendientes.
 
-Para prestadores cuya API **consultamos nosotros**:
+### GET /dashboard
 
-**Paso 1 — Crear `services/ingestores/nombre_proveedor.py`**
-```python
-from services.ingestores.base import IngestorBase
-from services.estandarizador import RegistroAVL, limpiar_placa
+Panel de monitoreo visual (navegador).
 
-class IngestorNombreProveedor(IngestorBase):
+### GET /configuracion
 
-    @property
-    def nombre(self) -> str:
-        return "nombre_proveedor"
-
-    async def consultar(self) -> list[RegistroAVL]:
-        # 1. Llamar a la API
-        # 2. Parsear respuesta
-        # 3. Limpiar placa con limpiar_placa()
-        # 4. Retornar lista de RegistroAVL
-        # NUNCA descartar registros por falta de GPS
-        ...
-```
-
-**Paso 2 — Agregar variables en `core/config.py` dentro de `__init__`**
-```python
-self.NUEVO_ACTIVO: bool = os.getenv("NUEVO_ENABLED", "false").lower() == "true"
-self.NUEVO_URL: str = os.getenv("NUEVO_URL", "")
-self.NUEVO_USUARIO: str = os.getenv("NUEVO_USER", "")
-self.NUEVO_CLAVE: str = os.getenv("NUEVO_PASS", "")
-self.NUEVO_INTERVALO: int = int(os.getenv("NUEVO_INTERVAL", "60"))
-```
-
-**Paso 3 — Registrar en `main.py` dentro del lifespan**
-```python
-if config.NUEVO_ACTIVO:
-    from services.ingestores.nombre_proveedor import IngestorNombreProveedor
-    planificador.registrar(
-        IngestorNombreProveedor(config.NUEVO_URL, config.NUEVO_USUARIO, config.NUEVO_CLAVE),
-        config.NUEVO_INTERVALO
-    )
-```
-
-**Paso 4 — Configurar en `.env`**
-```bash
-NUEVO_ENABLED=true
-NUEVO_URL=https://api.proveedor.com
-NUEVO_USER=usuario
-NUEVO_PASS=clave
-NUEVO_INTERVAL=60
-DESTINOS_NOMBRE_PROVEEDOR=simon
-```
+UI de configuración web (requiere HTTP Basic Auth con CONFIG_USUARIO/CONFIG_CLAVE).
 
 ---
 
-## 21. Errores frecuentes
+## Cola de reintentos
 
-| Error en logs | Causa | Solución |
-|---|---|---|
-| `401` en `/ingresar` | Token de seguridad incorrecto | Verificar `HUB_INGEST_TOKEN` o vaciarlo |
-| `400` en `/ingresar` | JSON inválido | Verificar Content-Type y estructura |
-| `RC Autenticación fallida` | Credenciales RC incorrectas | Verificar `RC_USER_ID` y `RC_PASSWORD` |
-| `RC HTTP 404` | URL con https en vez de http | Usar `http://gps.rcontrol.com.mx/...` |
-| `Simon HTTP 401` | Token Simon incorrecto | Verificar `SIMON_API_TOKEN` |
-| `CG Error al parsear XML` | Credenciales CG inválidas | Verificar `CONTROL_GROUP_USER` y `CONTROL_GROUP_PASS` |
-| `CONTROL_GROUP_ENABLED=false` | `.env` no encontrado | Crear `.env` con `cp .env.example .env` |
-| `DRY_RUN activo en producción` | Variable no actualizada | En Railway → Variables → `DRY_RUN=false` |
-| `LOG_RETENTION_HOURS not found` | Variable faltante en config.py | Agregar `self.LOG_RETENTION_HOURS` en `__init__` |
+Si un envío a RC o Simon falla:
+1. Los registros se guardan en `cola/pendientes_{destino}.json`
+2. En el próximo ciclo, el Hub reintenta **antes** de procesar datos nuevos
+3. Si el reintento es exitoso, el archivo de cola se elimina
+4. Si los registros tienen más de `COLA_MAX_HORAS` horas, se descartan
+
+El archivo de cola persiste en disco aunque el Hub se reinicie.
+
+---
+
+## Control Group — Protocolo XML
+
+El gateway devuelve una estructura dinámica:
+
+```xml
+<r cantidad="N" zonaHoraria="-03:00">
+  <columnas>
+    <i id="A" nombre="idRastreable" predeterminado="123456"/>
+    <i id="C" nombre="nombre" predeterminado="VJV-247"/>
+    <i id="D" nombre="fecha"/>
+    <i id="J" nombre="latitud"/>
+    <i id="K" nombre="longitud"/>
+  </columnas>
+  <filas>
+    <i C="ABC123" D="2024-01-15 10:30:00" J="-34.54" K="-58.47"/>
+  </filas>
+</r>
+```
+
+El ingestor construye un diccionario `{id_letra: {nombre, predeterminado}}` con las columnas, y lo usa para resolver cada fila. Si la fila no trae un campo, se aplica el predeterminado del diccionario.
+
+---
+
+## Simon 4.0 — Protocolo REST/JSON
+
+**Endpoint:** `POST /ReceiveAvlRecords?rpaIntegrationKey={SIMON_INTEGRATION_KEY}`
+
+**Cuerpo:** lista JSON (siempre, aunque sea un solo registro)
+
+```json
+[
+  {
+    "Asset": "ABC123",
+    "Latitude": -34.54113,
+    "Longitude": -58.47998,
+    "Speed": "60",
+    "Date": "2024-03-15T10:30:00-03:00",
+    "Code": "1",
+    "User_avl": "Rusertech"
+  }
+]
+```
+
+Las fechas se envían en hora local Argentina (`-03:00`), no en UTC.
+
+---
+
+## Recurso Confiable — Protocolo SOAP/XML
+
+Protocolo D-TI-15 v14. Envío en batch (todos los registros en un envelope).
+
+- URL: `http://` (sin SSL) — `http://gps.rcontrol.com.mx/Tracking/wcf/RCService.svc`
+- Token de sesión automático: se renueva 30 min antes de vencer
+- Retorna un `idJob` por envío para trazabilidad
+
+---
+
+## Agregar un nuevo proveedor pasivo
+
+1. Abrir la GUI → Configuración → **Proveedores pasivos** → `+ Agregar`
+2. Nombre: el que usará en la URL (ej: `samsara`)
+3. Destino: elegir a dónde ir sus datos
+4. Guardar → Detener y Reiniciar el Hub
+5. El prestador debe hacer `POST http://tu-servidor:8000/ingresar/samsara`
+
+---
+
+## Agregar un nuevo ingestor activo
+
+Por ahora solo Control Group está implementado como ingestor activo. Para agregar otro:
+1. Crear `services/ingestores/mi_proveedor.py` extendiendo `IngestorBase`
+2. Implementar `nombre` y `consultar()`
+3. Registrar en `main.py` dentro del lifespan
+4. Agregar sus variables al `.env`
+
+---
+
+## Deploy en Railway
+
+Ver [RAILWAY_VARIABLES.md](RAILWAY_VARIABLES.md) para el paso a paso completo.
+
+---
+
+## Recibir datos en local desde Internet (ngrok)
+
+Para que un prestador AVL externo pueda enviarte datos mientras desarrollás en local, necesitás exponer tu Hub a Internet. La herramienta más simple es **ngrok**.
+
+### Instalar ngrok (Windows)
+
+```powershell
+# Opción 1 — winget
+winget install ngrok
+
+# Opción 2 — descargar .exe desde https://ngrok.com/download
+```
+
+### Exponer el Hub local
+
+Con el Hub corriendo en el puerto 8000, en otra terminal:
+
+```bash
+ngrok http 8000
+```
+
+ngrok muestra algo así:
+
+```
+Forwarding  https://abc123.ngrok-free.app -> http://localhost:8000
+```
+
+### URL que le das al prestador AVL
+
+```
+POST https://abc123.ngrok-free.app/ingresar/{nombre_proveedor}
+Authorization: Bearer {HUB_INGEST_TOKEN}
+Content-Type: application/json
+```
+
+El prestador envía datos a esa URL pública → ngrok los reenvía al Hub local → el Hub los procesa normalmente.
+
+### Importante
+
+- La URL de ngrok **cambia** cada vez que lo reiniciás (plan gratuito)
+- Para URL fija: usar ngrok con dominio estático (plan pago) o deployar en Railway
+- El Hub en local debe estar corriendo **antes** de que llegue cualquier dato
+- El token `HUB_INGEST_TOKEN` aplica igual que en producción

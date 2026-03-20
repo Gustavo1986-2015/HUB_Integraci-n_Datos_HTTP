@@ -1,65 +1,105 @@
-# Hub de Integración Satelital
+# HUB de datos HTTP — Traductor Rusertech ®
 
-Recibe o consulta pulsos GPS de prestadores AVL, los normaliza y los envía a Recurso Confiable (SOAP) y/o Simon 4.0 (REST).
+Sistema de integración AVL desarrollado por Rusertech. Recibe o consulta datos GPS de prestadores satelitales, los normaliza a un modelo único y los despacha a Recurso Confiable (SOAP/XML) y/o Simon 4.0 (REST/JSON).
 
-## Arranque rápido
+## Inicio rápido
+
+### Local — con GUI (recomendado)
 
 ```bash
+# 1. Instalar dependencias
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+
+# 2. Configurar variables
+cp .env.example .env
+# Editar .env con credenciales reales
+
+# 3. Ejecutar
+python hub_gui.py
 ```
 
-Disponible en:
-- **Dashboard:**      http://localhost:8000/dashboard
-- **Configuración:**  http://localhost:8000/configuracion
-- **Estado:**         http://localhost:8000/estado
+### Local — sin GUI
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Compilar ejecutable .exe
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --icon=hub_icon.ico --distpath . --name "HubSatelital" hub_gui.py
+```
+
+El `.exe` queda en la raíz del proyecto junto al `.env`.
 
 ## Estructura
 
 ```
-├── main.py                          # Punto de entrada
-├── core/config.py                   # Configuración y variables de entorno
+├── main.py              # FastAPI + despacho + cola de reintentos
+├── hub_gui.py           # GUI de escritorio CustomTkinter (Deep Space)
+├── hub_icon.ico         # Ícono del .exe
+├── core/config.py       # Variables de entorno centralizadas
 ├── services/
-│   ├── estandarizador.py            # Normalización → RegistroAVL
-│   ├── metricas.py                  # Métricas en tiempo real
-│   ├── planificador.py              # Ejecuta ingestores activos
-│   ├── logger_archivo.py            # Logs JSON diarios en /logs
-│   ├── dashboard.html               # Panel de monitoreo
-│   ├── configuracion.html           # UI de configuración
+│   ├── cola_pendientes.py      # Cola de reintentos en JSON
+│   ├── estandarizador.py       # Normalización al modelo RegistroAVL
+│   ├── logger_archivo.py       # Logs de auditoría por placa
+│   ├── metricas.py             # Contadores en memoria
+│   ├── planificador.py         # Scheduler asyncio
 │   ├── despachadores/
-│   │   ├── cliente_rc.py            # → Recurso Confiable (SOAP)
-│   │   └── cliente_simon.py         # → Simon 4.0 (REST/JSON)
+│   │   ├── cliente_rc.py       # Envío SOAP a Recurso Confiable
+│   │   └── cliente_simon.py    # Envío REST a Simon 4.0
 │   └── ingestores/
-│       ├── base.py                  # Contrato base
-│       └── control_group.py         # Control Group Gateway
+│       └── control_group.py    # Ingestor activo Control Group Gateway
+└── .env                 # Credenciales (NO subir a GitHub)
 ```
 
-## Modos de operación
+## Endpoints
 
-**Pasivo** — el prestador nos envía datos:
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/ingresar/{proveedor}` | Recibir datos de un prestador |
+| `GET` | `/metricas` | Métricas JSON en tiempo real |
+| `GET` | `/dashboard` | Panel de monitoreo |
+| `GET` | `/estado` | Health check |
+
+## Destinos soportados
+
+| Destino | Protocolo | Auth |
+|---|---|---|
+| Recurso Confiable | SOAP/XML (D-TI-15 v14) | Usuario + contraseña |
+| Simon 4.0 — `POST /ReceiveAvlRecords` | REST/JSON | `?rpaIntegrationKey=...` en la URL |
+
+## Cola de reintentos
+
+Si un envío falla, los registros se guardan en `cola/pendientes_*.json` y se reenvían automáticamente en el próximo ciclo. Los archivos persisten aunque el Hub se reinicie.
+
+## Recibir datos en local desde Internet (ngrok)
+
+Para que un prestador AVL externo pueda enviarte datos mientras desarrollás en local:
+
+```powershell
+# 1. Instalar ngrok (una sola vez)
+winget install ngrok.ngrok
+
+# 2. Autenticar (una sola vez)
+ngrok config add-authtoken TU_TOKEN  # obtener en ngrok.com
+
+# 3. Con el Hub corriendo, exponer el puerto
+ngrok http 8000
 ```
-POST /ingresar/{nombre_proveedor}
-Content-Type: application/json
+
+La GUI detecta automáticamente cuando ngrok está activo y muestra la URL pública.
+Un click en la URL la copia al portapapeles para pasarla al prestador.
+
+URL que recibe el prestador:
+```
+POST https://abc123.ngrok-free.app/ingresar/{nombre_proveedor}
+Authorization: Bearer {HUB_INGEST_TOKEN}
 ```
 
-**Activo** — nosotros consultamos la API del prestador:
-```
-CONTROL_GROUP_ENABLED=true  →  consulta automática cada N segundos
-```
+> La URL cambia cada vez que se reinicia ngrok (plan gratuito). Para URL fija, usar Railway.
 
-## Variables principales (.env)
+## Deploy en Railway
 
-| Variable | Descripción |
-|---|---|
-| `DRY_RUN=true` | Modo prueba — sin envíos reales |
-| `SEND_TO_RECURSO_CONFIABLE=true` | Activar destino RC |
-| `SEND_TO_SIMON=true` | Activar destino Simon 4.0 |
-| `CONTROL_GROUP_ENABLED=true` | Activar ingestor Control Group |
-| `DESTINOS_CONTROL_GROUP=simon` | A qué destino van los datos de CG |
-| `LOG_RETENTION_HOURS=48` | Horas que se conservan los logs |
-
-Ver `.env.example` para la lista completa.
-
-## Documentación completa
-
-Ver [DOCUMENTACION.md](DOCUMENTACION.md)
+Ver [RAILWAY_VARIABLES.md](RAILWAY_VARIABLES.md) para instrucciones completas.

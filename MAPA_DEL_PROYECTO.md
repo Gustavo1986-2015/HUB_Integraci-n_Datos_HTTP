@@ -1,10 +1,8 @@
-# Mapa del Proyecto — ¿Qué hace cada archivo?
+# Mapa del Proyecto — HUB de datos HTTP / Traductor Rusertech ® — ¿Qué hace cada archivo?
 
 ## La idea en una línea
 
-El Hub recibe o consulta datos GPS de prestadores, los normaliza
-a un modelo único, limpia las placas y los envía a los destinos
-configurados. Todo queda registrado en logs para auditoría.
+El Hub recibe o consulta datos GPS de prestadores, los normaliza a un modelo único, limpia las placas y los envía a los destinos configurados. Si un envío falla, los datos esperan en cola y se reintenta automáticamente.
 
 ---
 
@@ -14,161 +12,131 @@ configurados. Todo queda registrado en logs para auditoría.
 HUB_Integración_Datos_HTTP/
 │
 │  ► main.py
-│    El cerebro del proyecto. Arranca el servidor, recibe los datos,
-│    coordina el despacho y expone todos los endpoints.
-│    Es el único archivo que "une" todo lo demás.
+│    El cerebro del proyecto. Arranca el servidor FastAPI, recibe los datos,
+│    coordina el despacho, maneja la cola de reintentos y expone todos los endpoints.
+│
+│  ► hub_gui.py
+│    Interfaz gráfica de escritorio (CustomTkinter — tema Deep Space).
+│    Doble click → Login → Monitor en vivo + Configuración.
+│    Arranca uvicorn dentro del mismo proceso (sin ventana extra).
+│    Detecta ngrok automáticamente (localhost:4040) y muestra la URL pública.
+│    Compilar: pyinstaller --onefile --windowed --icon=hub_icon.ico --distpath . --name "HubSatelital" hub_gui.py
+│
+│  ► hub_icon.ico
+│    Ícono del .exe con el satélite. Necesario para la compilación.
 │
 │  ► .env
 │    Tus credenciales y configuración real. NUNCA sube a GitHub.
-│    Es el único archivo que editás para cambiar el comportamiento
-│    del Hub sin tocar código.
 │
-│  ► .env.example
-│    Plantilla vacía del .env. Sí sube a GitHub.
-│    Muestra qué variables hay que configurar y para qué sirve cada una.
+│  ► .env.example.new
+│    Plantilla vacía. Copiar como .env y completar.
 │
-│  ► requirements.txt
-│    Lista de librerías Python que el proyecto necesita.
-│    Se instala una sola vez: pip install -r requirements.txt
+│  ► requirements.txt / runtime.txt / Procfile
+│    Dependencias Python y configuración de arranque para Railway.
 │
-│  ► Procfile
-│    Le dice a Railway cómo arrancar el servidor.
-│    Solo se usa en producción. Ignorar en local.
-│
-│  ► runtime.txt
-│    Le dice a Railway qué versión de Python usar.
-│    Solo se usa en producción. Ignorar en local.
-│
-│  ► test_local.sh
-│    Script que prueba automáticamente que el Hub responde bien.
-│    Ejecutar una vez después de arrancar para verificar todo.
-│
-│  ► DOCUMENTACION.md
-│    Manual técnico completo: instalación, variables, endpoints,
-│    cómo agregar proveedores, errores frecuentes, etc.
-│
-│  ► MAPA_DEL_PROYECTO.md
-│    Este archivo. Visión rápida de qué hace cada script.
-│
-│  ► README.md
-│    Presentación en GitHub. Arranque rápido en 3 pasos.
+│  ► RAILWAY_VARIABLES.md
+│    Guía completa de deploy en Railway con todas las variables.
 │
 ├── core/
-│   │
 │   └── config.py
-│        Lee TODAS las variables del .env y las pone disponibles
-│        para el resto del proyecto.
-│        Si querés saber qué variable controla qué cosa, mirá acá.
-│        También incluye el método de routing: quién va a dónde.
+│        Lee TODAS las variables del .env al arrancar.
+│        Un solo lugar para cambiar cualquier parámetro del sistema.
 │
 ├── services/
 │   │
+│   │  ► cola_pendientes.py
+│   │    Cola de reintentos en archivos JSON.
+│   │    Si RC o Simon no responden, los registros se guardan aquí
+│   │    y se reenvían en el próximo ciclo automáticamente.
+│   │    Persiste en disco aunque el Hub se reinicie.
+│   │    Archivos: cola/pendientes_recurso_confiable.json | cola/pendientes_simon.json
+│   │
 │   │  ► estandarizador.py
-│   │    Convierte cualquier JSON (de cualquier prestador) al modelo
-│   │    único interno: RegistroAVL.
-│   │    También limpia las placas: elimina guiones, espacios y
-│   │    caracteres especiales antes de enviar a cualquier destino.
-│   │    Si un nuevo prestador usa nombres de campos distintos,
-│   │    solo hay que agregar sus aliases en ALIASES_CAMPOS.
+│   │    Convierte cualquier JSON o XML al modelo único RegistroAVL.
+│   │    También limpia las placas: elimina guiones, espacios y caracteres
+│   │    especiales antes de enviar a cualquier destino.
+│   │    "ABC-123" → "ABC123"
 │   │
 │   │  ► metricas.py
 │   │    Lleva la cuenta en memoria de todo lo que pasa:
-│   │    cuántos registros entraron, se enviaron, fallaron.
-│   │    El dashboard lee estos datos cada 5 segundos.
-│   │    Se resetea al reiniciar el servidor.
+│   │    ingestados, enviados, fallidos. El dashboard y la GUI
+│   │    leen estos datos cada 5 segundos.
 │   │
 │   │  ► planificador.py
 │   │    Ejecuta los ingestores activos cada N segundos.
-│   │    Es el reloj del Hub: "cada 60 segundos, consultá Control Group".
 │   │    Si un ingestor falla, el error se loguea y el ciclo continúa.
 │   │
 │   │  ► logger_archivo.py
-│   │    Escribe un archivo JSON por día en la carpeta logs/.
-│   │    Guarda UN registro por placa con todos sus datos:
-│   │    posición, velocidad, evento, temperatura, etc.
-│   │    Permite auditar qué datos exactos tuvo cada vehículo
-│   │    en cada momento y si el envío fue exitoso.
-│   │    Elimina automáticamente archivos más viejos de N horas.
+│   │    Escribe un archivo JSON por día en logs/.
+│   │    Una línea por placa con todos sus datos + resultado del envío.
+│   │    Escritura en BATCH: una sola apertura de archivo por lote
+│   │    (crítico para no bloquear el event loop con miles de registros).
+│   │    Retención configurable con LOG_RETENTION_HOURS en .env.
 │   │
-│   │  ► dashboard.html
-│   │    El panel de monitoreo visual que ves en el navegador.
-│   │    Se actualiza automáticamente cada 5 segundos consultando /metricas.
-│   │    Muestra: KPIs, estado de destinos, proveedores activos y log.
-│   │
-│   │  ► configuracion.html
-│   │    UI web para configurar el Hub sin editar el .env manualmente.
-│   │    Secciones: General, Destinos (RC/Simon), APIs, Routing.
-│   │    Protegida con usuario/contraseña (CONFIG_USUARIO / CONFIG_CLAVE).
-│   │    El botón Guardar escribe el .env. Reiniciar para aplicar cambios.
+│   │  ► dashboard.html / configuracion.html
+│   │    Interfaces web de monitoreo y configuración (acceso por navegador).
 │   │
 │   ├── despachadores/
 │   │   │   Envían los datos normalizados a los destinos finales.
-│   │   │   Hay uno por cada destino. Cada uno conoce su propio protocolo.
 │   │   │
 │   │   ├── cliente_rc.py
-│   │   │    Envía a Recurso Confiable usando protocolo SOAP/XML.
-│   │   │    Maneja el token de sesión automáticamente (dura 24 horas,
-│   │   │    se renueva solo 30 minutos antes de vencer).
-│   │   │    Retorna el idJob de RC para trazabilidad en logs.
-│   │   │    Referencia: documento D-TI-15 v14.
+│   │   │    Recurso Confiable — SOAP/XML (Protocolo D-TI-15 v14).
+│   │   │    Token de sesión automático (renueva 30 min antes de vencer).
+│   │   │    Retorna el idJob de RC para trazabilidad.
+│   │   │    URL: http:// (no https) — RC no usa SSL en este endpoint.
 │   │   │
 │   │   └── cliente_simon.py
-│   │        Envía a Simon 4.0 usando protocolo REST/JSON.
-│   │        Usa un token Bearer fijo que Simon entrega una sola vez.
-│   │        Para lotes grandes divide en bloques de 100 automáticamente.
+│   │        Simon 4.0 — REST/JSON.
+│   │        La integration key va como ?rpaIntegrationKey=... en la URL.
+│   │        Ajusta el timezone de las fechas a hora local del prestador.
+│   │        Endpoint: POST /ReceiveAvlRecords?rpaIntegrationKey=XXX
 │   │
 │   └── ingestores/
 │       │   Consultan APIs de prestadores externos (modo activo).
-│       │   El planificador llama a consultar() de cada ingestor
-│       │   cada N segundos según el intervalo configurado.
 │       │
 │       ├── base.py
-│       │    Define el contrato mínimo que todo ingestor debe cumplir:
-│       │    tener un nombre y un método consultar().
-│       │    No hace nada por sí solo. Es la plantilla.
+│       │    Contrato mínimo: nombre + consultar().
 │       │
 │       └── control_group.py
 │            Consulta el Gateway de Control Group cada N segundos.
-│            Parsea el XML de respuesta con columnas dinámicas.
-│            Si una fila no trae placa, usa el predeterminado de la columna.
+│            Parsea XML con columnas dinámicas usando un diccionario:
+│              mapa_columnas = {id_letra: {nombre, predeterminado}}
+│            Si una fila no trae un campo → usa el predeterminado del dict.
 │            NUNCA descarta registros aunque no tengan posición GPS.
 │
-└── logs/
-     Carpeta creada automáticamente al primer envío.
-     Contiene archivos hub_YYYY-MM-DD.json (uno por día).
-     Se eliminan automáticamente según LOG_RETENTION_HOURS.
+└── cola/         ← archivos de reintentos (se crean automáticamente)
+└── logs/         ← archivos de auditoría diarios (se crean automáticamente)
 ```
 
 ---
 
-## Flujo completo de un dato
+## Flujo de un dato
 
 ```
 1. ORIGEN
-   Control Group tiene vehículos con GPS reportando eventos
+   Control Group, Samsara, u otro prestador tiene vehículos reportando eventos
 
-2. OBTENCIÓN (ingestores/control_group.py)
-   El Hub consulta el gateway cada 60 segundos en modo INCREMENTAL
-   Solo devuelve eventos nuevos desde la última consulta
+2. OBTENCIÓN / RECEPCIÓN
+   Activo:  Hub consulta la API cada 60s → ingestores/control_group.py
+   Pasivo:  Prestador hace POST /ingresar/{nombre} → main.py recibe
 
 3. NORMALIZACIÓN (services/estandarizador.py)
-   El XML se convierte al modelo único: RegistroAVL
-   La placa se limpia: "ABC-123" → "ABC123"
+   XML o JSON → RegistroAVL. Placa limpiada: "ABC-123" → "ABC123"
 
 4. ROUTING (core/config.py)
-   ¿A dónde van los datos de control_group?
-   Lee DESTINOS_CONTROL_GROUP del .env
+   ¿A dónde van los datos de este proveedor?
+   Lee DESTINOS_{PROVEEDOR} del .env
 
 5. ENVÍO (services/despachadores/)
    "recurso_confiable" → cliente_rc.py   → SOAP/XML → idJob
-   "simon"            → cliente_simon.py → REST/JSON
+   "simon"            → cliente_simon.py → REST/JSON → ?rpaIntegrationKey=...
 
-6. LOG DE AUDITORÍA (services/logger_archivo.py)
-   Un registro JSON por placa con todos sus datos
-   + registro de despacho con idJob y resultado
+6. COLA (services/cola_pendientes.py)
+   Si el envío falla → cola/pendientes_*.json
+   Próximo ciclo → reintenta antes de enviar datos nuevos
 
-7. MÉTRICAS (services/metricas.py + dashboard.html)
-   Contadores actualizados visibles en tiempo real
+7. AUDITORÍA (services/logger_archivo.py)
+   Un registro JSON por placa. Escritura en batch, sin bloquear el event loop.
 ```
 
 ---
@@ -176,20 +144,33 @@ HUB_Integración_Datos_HTTP/
 ## Regla fundamental
 
 > Ningún registro se descarta aunque no tenga posición GPS.
-> Un evento de pánico, batería baja o alarma es información
-> valiosa independientemente de si hay señal GPS en ese momento.
-> Los despachadores envían latitud/longitud = 0.0 en esos casos.
+> Los despachadores envían latitud/longitud = 0.0 cuando son None.
 
 ---
 
-## Seguridad
+## Recibir datos en local — ngrok
 
-| Endpoint | Protección |
+Para exponer el Hub local a Internet y recibir datos de prestadores externos:
+
+```powershell
+winget install ngrok.ngrok           # instalar
+ngrok config add-authtoken TU_TOKEN  # autenticar (ngrok.com)
+ngrok http 8000                      # exponer el Hub
+```
+
+La GUI detecta la URL activa automáticamente. Ver `DOCUMENTACION.md` para el flujo completo.
+
+---
+
+## Variables importantes del .env
+
+| Variable | Para qué sirve |
 |---|---|
-| `POST /ingresar/{proveedor}` | Bearer token (`HUB_INGEST_TOKEN`) |
-| `GET /configuracion` | HTTP Basic Auth (`CONFIG_USUARIO` / `CONFIG_CLAVE`) |
-| `GET /dashboard` | Sin autenticación (solo lectura) |
-| `GET /estado` | Sin autenticación (health check) |
-
-En desarrollo local dejar vacías las variables de seguridad.
-En producción **siempre** configurar ambas.
+| `DRY_RUN=true` | Simular envíos sin contactar destinos reales |
+| `CONTROL_GROUP_ENABLED=true` | Activar ingestor de Control Group |
+| `DESTINOS_CONTROL_GROUP=recurso_confiable` | A dónde van sus datos |
+| `SIMON_BASE_URL` | URL base de Simon (sin la integration key) |
+| `SIMON_INTEGRATION_KEY` | clave que se agrega como ?rpaIntegrationKey=... |
+| `RC_TIMEZONE_OFFSET=+00:00` | RC requiere UTC |
+| `SIMON_TIMEZONE_OFFSET=-03:00` | Simon requiere hora local |
+| `COLA_MAX_HORAS=24` | Cuánto tiempo esperar antes de descartar pendientes |
