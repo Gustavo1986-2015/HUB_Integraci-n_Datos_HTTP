@@ -50,3 +50,6 @@ venv/
 # Datos runtime (se generan solos)
 logs/
 cola/
+
+# ngrok
+ngrok.exe

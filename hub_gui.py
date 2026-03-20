@@ -84,19 +84,31 @@ def leer_env() -> dict:
     return datos
 
 
-def escribir_env(datos: dict) -> None:
+def escribir_env(datos: dict, limpiar_prefijos: list = None) -> None:
+    """
+    Actualiza el .env preservando comentarios y líneas no modificadas.
+    limpiar_prefijos: elimina del .env todas las claves con esos prefijos
+    antes de escribir. Ej: ["DESTINOS_"] para limpiar proveedores pasivos
+    eliminados de la GUI.
+    """
     if not RUTA_ENV.exists():
         with open(RUTA_ENV, "w", encoding="utf-8") as f:
             for c, v in datos.items():
                 f.write(f"{c}={v}\n")
         return
+
+    limpiar = limpiar_prefijos or []
     lineas = RUTA_ENV.read_text(encoding="utf-8").splitlines(keepends=True)
     actualizadas = set()
     nuevas = []
+
     for linea in lineas:
         s = linea.strip()
         if s and not s.startswith("#") and "=" in s:
             c = s.split("=")[0].strip()
+            # Si la clave tiene un prefijo a limpiar, omitirla (borrarla del .env)
+            if any(c.startswith(p) for p in limpiar):
+                continue
             if c in datos:
                 nuevas.append(f"{c}={datos[c]}\n")
                 actualizadas.add(c)
@@ -104,9 +116,11 @@ def escribir_env(datos: dict) -> None:
                 nuevas.append(linea)
         else:
             nuevas.append(linea)
+
     for c, v in datos.items():
         if c not in actualizadas:
             nuevas.append(f"{c}={v}\n")
+
     RUTA_ENV.write_text("".join(nuevas), encoding="utf-8")
 
 
@@ -231,8 +245,8 @@ class VentanaLogin(ctk.CTk):
         # Ícono — usa imagen real del .ico
         try:
             from PIL import Image as _PILImg
-            _pil = _PILImg.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((88, 88))
-            self._login_icon = ctk.CTkImage(light_image=_pil, dark_image=_pil, size=(88, 88))
+            _pil = _PILImg.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((100, 100))
+            self._login_icon = ctk.CTkImage(light_image=_pil, dark_image=_pil, size=(100, 100))
             ctk.CTkLabel(self, image=self._login_icon, text="").pack(pady=(28, 8))
         except Exception:
             frame_icon = ctk.CTkFrame(self, width=72, height=72, corner_radius=16,
@@ -242,7 +256,7 @@ class VentanaLogin(ctk.CTk):
             ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 36)).place(
                 relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(self, text="Rusertech Hub",
+        ctk.CTkLabel(self, text="Rusertech® HUB",
                      font=F_TITULO, text_color=C_TEXTO).pack()
         ctk.CTkLabel(self, text="Ingresá tus credenciales de acceso",
                      font=F_PEQUENA, text_color=C_APAGADO).pack(pady=(4, 24))
@@ -491,6 +505,10 @@ class HubApp(ctk.CTk):
             pass
 
         self._campos: dict = {}
+        # Inicializar variables de ngrok ANTES de construir la UI
+        # (los botones de la UI referencian estos atributos)
+        self._ngrok_url: str = ""
+        self._proceso_ngrok = None
         self._construir_ui()
         self.after(200, self._cargar_todo)
         self._actualizar_metricas()
@@ -510,7 +528,7 @@ class HubApp(ctk.CTk):
         self._panel_derecho()
 
     def _panel_izquierdo(self):
-        panel = ctk.CTkFrame(self, width=275, corner_radius=0,
+        panel = ctk.CTkFrame(self, width=310, corner_radius=0,
                               fg_color=C_SURF)
         panel.grid(row=0, column=0, sticky="nsew")
         panel.grid_propagate(False)
@@ -519,8 +537,8 @@ class HubApp(ctk.CTk):
         # Ícono — usa imagen real del .ico
         try:
             from PIL import Image as _PILImg2
-            _pil2 = _PILImg2.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((76, 76))
-            self._sidebar_icon = ctk.CTkImage(light_image=_pil2, dark_image=_pil2, size=(76, 76))
+            _pil2 = _PILImg2.open(str(BASE_DIR / "hub_icon.ico")).convert("RGBA").resize((96, 96))
+            self._sidebar_icon = ctk.CTkImage(light_image=_pil2, dark_image=_pil2, size=(96, 96))
             ctk.CTkLabel(panel, image=self._sidebar_icon, text="").grid(row=0, column=0, pady=(20, 6))
         except Exception:
             frame_icon = ctk.CTkFrame(panel, width=68, height=68, corner_radius=16,
@@ -530,7 +548,7 @@ class HubApp(ctk.CTk):
             ctk.CTkLabel(frame_icon, text="🛰️", font=("Segoe UI Emoji", 34),
                          text_color=C_BG_TOP).place(relx=0.5, rely=0.5, anchor="center")
 
-        ctk.CTkLabel(panel, text="Rusertech Hub",
+        ctk.CTkLabel(panel, text="Rusertech® HUB",
                      font=F_TITULO, text_color=C_TEXTO).grid(row=1, column=0)
         ctk.CTkLabel(panel, text="Traductor de datos AVL",
                      font=F_PEQUENA, text_color=C_APAGADO).grid(row=2, column=0, pady=(0, 20))
@@ -571,29 +589,53 @@ class HubApp(ctk.CTk):
             ctk.CTkLabel(fi, text=lbl, font=F_PEQUENA, text_color=C_APAGADO).pack()
             self._metricas[k] = v
 
-        # Botón Abrir Dashboard
+        # Botones de acceso rápido
+        frame_btns_quick = ctk.CTkFrame(panel, fg_color="transparent")
+        frame_btns_quick.grid(row=7, column=0, padx=16, pady=(4, 2), sticky="ew")
+        frame_btns_quick.grid_columnconfigure((0, 1), weight=1)
+
         ctk.CTkButton(
-            panel, text="🌐  Abrir Dashboard",
-            height=32, width=235, font=F_PEQUENA,
+            frame_btns_quick, text="🌐  Dashboard",
+            height=32, font=F_PEQUENA,
             fg_color="transparent", hover_color=C_SURF2,
             border_color=C_BORDE, border_width=1,
             text_color=C_GRAD3, corner_radius=8,
             command=lambda: __import__("webbrowser").open("http://localhost:8000/dashboard")
-        ).grid(row=7, column=0, padx=20, pady=(4, 2))
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+
+        ctk.CTkButton(
+            frame_btns_quick, text="📄  Ver Logs",
+            height=32, font=F_PEQUENA,
+            fg_color="transparent", hover_color=C_SURF2,
+            border_color=C_BORDE, border_width=1,
+            text_color=C_GRAD3, corner_radius=8,
+            command=self._abrir_logs,
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         # Panel ngrok
         frame_ngrok = ctk.CTkFrame(panel, fg_color=C_SURF2, corner_radius=8)
         frame_ngrok.grid(row=8, column=0, padx=16, pady=(4, 2), sticky="ew")
         frame_ngrok.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(frame_ngrok, text="ngrok",
+        frame_ngrok_top = ctk.CTkFrame(frame_ngrok, fg_color="transparent")
+        frame_ngrok_top.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
+        frame_ngrok_top.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(frame_ngrok_top, text="ngrok",
                      font=("Inter", 10, "bold"), text_color=C_APAGADO,
-                     anchor="w").grid(row=0, column=0, sticky="w", padx=10, pady=(6, 0))
+                     anchor="w").grid(row=0, column=0, sticky="w")
+        self._btn_ngrok = ctk.CTkButton(
+            frame_ngrok_top, text="▶ Iniciar", width=72, height=22,
+            font=("Inter", 9, "bold"),
+            fg_color=C_GRAD2, hover_color=C_GRAD3,
+            text_color=C_BG_TOP, corner_radius=6,
+            command=self._toggle_ngrok,
+        )
+        self._btn_ngrok.grid(row=0, column=1, sticky="e")
 
         self._lbl_ngrok = ctk.CTkLabel(
-            frame_ngrok, text="No detectado",
+            frame_ngrok, text="No activo",
             font=F_MONO, text_color=C_APAGADO,
-            cursor="hand2", wraplength=220, anchor="w",
+            cursor="hand2", wraplength=260, anchor="w",
         )
         self._lbl_ngrok.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 2))
         self._lbl_ngrok.bind("<Button-1>", self._copiar_url_ngrok)
@@ -605,6 +647,7 @@ class HubApp(ctk.CTk):
         self._lbl_ngrok_hint.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 6))
 
         self._ngrok_url: str = ""
+        self._proceso_ngrok = None
 
         # Uptime
         self._lbl_uptime = ctk.CTkLabel(panel, text="",
@@ -639,10 +682,17 @@ class HubApp(ctk.CTk):
         tb.grid(row=0, column=0, sticky="ew", pady=(8, 4))
         ctk.CTkLabel(tb, text="Log en vivo", font=F_GRANDE,
                      text_color=C_TEXTO).pack(side="left", padx=8)
-        ctk.CTkButton(tb, text="Limpiar", width=80, height=28,
+        self._lbl_uptime_monitor = ctk.CTkLabel(tb, text="",
+                     font=F_PEQUENA, text_color=C_VERDE)
+        self._lbl_uptime_monitor.pack(side="left", padx=4)
+        ctk.CTkButton(tb, text="📤  Exportar", width=90, height=28,
+                      font=F_PEQUENA, fg_color=C_SURF2,
+                      hover_color=C_BORDE, text_color=C_GRAD3,
+                      command=self._exportar_log).pack(side="right", padx=(4, 8))
+        ctk.CTkButton(tb, text="🗑  Limpiar", width=80, height=28,
                       font=F_PEQUENA, fg_color=C_SURF2,
                       hover_color=C_BORDE, text_color=C_TEXTO,
-                      command=self._limpiar).pack(side="right", padx=8)
+                      command=self._limpiar).pack(side="right")
 
         self._txt = ctk.CTkTextbox(tab, font=F_MONO, fg_color=C_SURF2,
                                     text_color=C_TEXTO, corner_radius=8, wrap="word")
@@ -849,6 +899,58 @@ class HubApp(ctk.CTk):
                      font=("Inter", 11, "bold"), text_color=C_APAGADO,
                      anchor="w").pack(fill="x")
 
+        # ── Endpoint info box ─────────────────────────────────────────────
+        frame_ep = ctk.CTkFrame(scroll, fg_color=C_SURF2, corner_radius=10)
+        frame_ep.grid(row=fila[0], column=0, sticky="ew", padx=16, pady=(8, 4))
+        frame_ep.grid_columnconfigure(0, weight=1)
+        fila[0] += 1
+        ctk.CTkLabel(frame_ep, text="📌  Endpoint que le das al prestador AVL",
+                     font=("Inter", 12, "bold"), text_color=C_TEXTO, anchor="w").grid(
+            row=0, column=0, sticky="w", padx=16, pady=(12, 6))
+        ctk.CTkLabel(frame_ep, text="Local (desarrollo):", font=F_PEQUENA,
+                     text_color=C_APAGADO, anchor="w").grid(
+            row=1, column=0, sticky="w", padx=16, pady=(0, 2))
+        f_ep_loc = ctk.CTkFrame(frame_ep, fg_color=C_SURF, corner_radius=6)
+        f_ep_loc.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 8))
+        f_ep_loc.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(f_ep_loc, text="POST  http://localhost:8000/ingresar/{nombre}",
+                     font=F_MONO, text_color=C_GRAD3, anchor="w").grid(
+            row=0, column=0, sticky="w", padx=10, pady=6)
+        ctk.CTkButton(f_ep_loc, text="📋 Copiar", width=80, height=26,
+                      font=F_PEQUENA, fg_color=C_SURF2, hover_color=C_BORDE,
+                      text_color=C_GRAD3, corner_radius=6,
+                      command=lambda: self._copiar_texto(
+                          "http://localhost:8000/ingresar/{nombre}",
+                          "URL local copiada")).grid(row=0, column=1, padx=(0, 8))
+        ctk.CTkLabel(frame_ep, text="Publico via ngrok (cuando esta activo):",
+                     font=F_PEQUENA, text_color=C_APAGADO, anchor="w").grid(
+            row=3, column=0, sticky="w", padx=16, pady=(0, 2))
+        f_ep_ng = ctk.CTkFrame(frame_ep, fg_color=C_SURF, corner_radius=6)
+        f_ep_ng.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 8))
+        f_ep_ng.grid_columnconfigure(0, weight=1)
+        self._lbl_endpoint_ngrok = ctk.CTkLabel(
+            f_ep_ng, text="POST  https://[inicia ngrok primero]/ingresar/{nombre}",
+            font=F_MONO, text_color=C_APAGADO, anchor="w", wraplength=700)
+        self._lbl_endpoint_ngrok.grid(row=0, column=0, sticky="w", padx=10, pady=6)
+        self._btn_copiar_ngrok_ep = ctk.CTkButton(
+            f_ep_ng, text="📋 Copiar", width=80, height=26,
+            font=F_PEQUENA, fg_color=C_SURF2, hover_color=C_BORDE,
+            text_color=C_APAGADO, corner_radius=6,
+            command=lambda: self._copiar_endpoint_ngrok())
+        self._btn_copiar_ngrok_ep.grid(row=0, column=1, padx=(0, 8))
+        f_ep_token = ctk.CTkFrame(frame_ep, fg_color="transparent")
+        f_ep_token.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 12))
+        f_ep_token.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(f_ep_token,
+                     text="Header:  Authorization: Bearer {HUB_INGEST_TOKEN}   (vacio = sin autenticacion)",
+                     font=F_MONO, text_color=C_APAGADO, anchor="w").grid(
+            row=0, column=0, sticky="w")
+        ctk.CTkButton(f_ep_token, text="📋 Copiar token", width=110, height=26,
+                      font=F_PEQUENA, fg_color=C_SURF2, hover_color=C_BORDE,
+                      text_color=C_APAGADO, corner_radius=6,
+                      command=lambda: self._copiar_token_ingest()).grid(row=0, column=1, padx=(8, 0))
+
+        # ── Lista de proveedores pasivos ──────────────────────────────────
         frame_pasivos = ctk.CTkFrame(scroll, fg_color=C_SURF2, corner_radius=10)
         frame_pasivos.grid(row=fila[0], column=0, sticky="ew", padx=16, pady=(8, 4))
         frame_pasivos.grid_columnconfigure(0, weight=1)
@@ -927,7 +1029,9 @@ class HubApp(ctk.CTk):
             subtexto = f"cada {intervalo}s  →  {destino}"
         else:
             destino = datos.get("destino", "—")
-            subtexto = f"/ingresar/{nombre}  →  {destino}"
+            ngrok_url = getattr(self, "_ngrok_url", "")
+            base = ngrok_url if ngrok_url else "http://localhost:8000"
+            subtexto = f"POST {base}/ingresar/{nombre}  →  {destino}"
 
         info_f = ctk.CTkFrame(f, fg_color="transparent")
         info_f.grid(row=0, column=1, sticky="w", padx=4, pady=8)
@@ -939,11 +1043,23 @@ class HubApp(ctk.CTk):
         datos_edit = datos.copy()
         datos_edit["_puede_eliminar"] = True
 
-        ctk.CTkButton(f, text="✏  Editar", width=80, height=30,
+        frame_btns_fila = ctk.CTkFrame(f, fg_color="transparent")
+        frame_btns_fila.grid(row=0, column=2, padx=(4, 12), pady=8)
+
+        if tipo == "pasivo":
+            ngrok_url = getattr(self, "_ngrok_url", "")
+            base_url = ngrok_url if ngrok_url else "http://localhost:8000"
+            url_final = f"{base_url}/ingresar/{datos.get('nombre', 'proveedor')}"
+            ctk.CTkButton(frame_btns_fila, text="📋", width=32, height=30,
+                          font=F_PEQUENA, fg_color=C_SURF2, hover_color=C_BORDE,
+                          text_color=C_GRAD3, corner_radius=6,
+                          command=lambda u=url_final: self._copiar_texto(u, f"URL copiada: {u}")
+                          ).pack(side="left", padx=(0, 4))
+
+        ctk.CTkButton(frame_btns_fila, text="✏  Editar", width=80, height=30,
                       font=F_PEQUENA, fg_color=C_SURF2, hover_color=C_BORDE,
                       text_color=C_TEXTO,
-                      command=lambda d=datos_edit, t=tipo: self._editar_item(d, t)).grid(
-            row=0, column=2, padx=(4, 12), pady=8)
+                      command=lambda d=datos_edit, t=tipo: self._editar_item(d, t)).pack(side="left")
 
     def _rebuild_lista_apis(self):
         """Reconstruye la lista de APIs desde _apis_data."""
@@ -1117,7 +1233,9 @@ class HubApp(ctk.CTk):
         datos.pop("CONFIG_USUARIO", None)
         datos.pop("CONFIG_CLAVE", None)
 
-        escribir_env(datos)
+        # limpiar_prefijos=["DESTINOS_"] elimina del .env todos los DESTINOS_*
+        # antes de escribir, para que los proveedores eliminados no reaparezcan
+        escribir_env(datos, limpiar_prefijos=["DESTINOS_"])
         self._lbl_ok.configure(
             text="✓ Guardado — Detené y Reiniciá el Hub para aplicar los cambios",
             text_color=C_VERDE)
@@ -1173,6 +1291,8 @@ class HubApp(ctk.CTk):
         self._log("INFO", "Hub detenido.")
         self._uptime_inicio = 0.0
         self._lbl_uptime.configure(text="")
+        if hasattr(self, "_lbl_uptime_monitor"):
+            self._lbl_uptime_monitor.configure(text="")
         for v in self._metricas.values():
             v.configure(text="0", text_color=C_TEXTO)
 
@@ -1227,6 +1347,65 @@ class HubApp(ctk.CTk):
     # Métricas                                                            #
     # ------------------------------------------------------------------ #
 
+    def _buscar_ngrok_exe(self) -> str:
+        """Busca ngrok.exe en el PATH y ubicaciones comunes de Windows."""
+        import shutil
+        from pathlib import Path
+
+        en_path = shutil.which("ngrok")
+        if en_path:
+            return en_path
+
+        candidatos = [
+            BASE_DIR / "ngrok.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ngrok.exe",
+            Path(os.environ.get("USERPROFILE", "")) / "AppData" / "Local" / "ngrok" / "ngrok.exe",
+            Path(os.environ.get("USERPROFILE", "")) / "scoop" / "shims" / "ngrok.exe",
+        ]
+        winget_base = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+        if winget_base.exists():
+            for p in winget_base.rglob("ngrok.exe"):
+                candidatos.append(p)
+
+        for c in candidatos:
+            if c and Path(c).exists():
+                return str(c)
+        return ""
+
+    def _toggle_ngrok(self):
+        """Inicia o detiene ngrok."""
+        import subprocess
+        if self._proceso_ngrok and self._proceso_ngrok.poll() is None:
+            self._proceso_ngrok.terminate()
+            self._proceso_ngrok = None
+            self._btn_ngrok.configure(text="▶ Iniciar", fg_color=C_GRAD2,
+                                       hover_color=C_GRAD3, text_color=C_BG_TOP)
+            self._lbl_ngrok.configure(text="No activo", text_color=C_APAGADO)
+            self._lbl_ngrok_hint.configure(text="")
+            self._ngrok_url = ""
+        else:
+            exe = self._buscar_ngrok_exe()
+            if not exe:
+                self._lbl_ngrok.configure(
+                    text="ngrok.exe no encontrado", text_color=C_AMARILLO)
+                self._lbl_ngrok_hint.configure(
+                    text="Descargar en ngrok.com/download y poner en la carpeta del proyecto",
+                    text_color=C_APAGADO)
+                return
+            try:
+                self._proceso_ngrok = subprocess.Popen(
+                    [exe, "http", "8000"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+                self._btn_ngrok.configure(text="⏹ Detener", fg_color=C_ROJO,
+                                           hover_color="#c0003a", text_color=C_TEXTO)
+                self._lbl_ngrok.configure(text="Iniciando...", text_color=C_AMARILLO)
+                self._lbl_ngrok_hint.configure(text="Esperando URL...", text_color=C_APAGADO)
+            except Exception as e:
+                self._lbl_ngrok.configure(text=f"Error: {e}", text_color=C_ROJO)
+
     def _copiar_url_ngrok(self, event=None):
         """Copia la URL de ngrok al portapapeles al hacer click."""
         if self._ngrok_url:
@@ -1236,6 +1415,166 @@ class HubApp(ctk.CTk):
                 text="✓ Copiado al portapapeles", text_color=C_VERDE)
             self.after(2500, lambda: self._lbl_ngrok_hint.configure(
                 text="Click para copiar", text_color=C_APAGADO))
+
+    def _copiar_texto(self, texto: str, mensaje: str = "Copiado"):
+        """Copia texto al portapapeles y confirma en el log."""
+        self.clipboard_clear()
+        self.clipboard_append(texto)
+        self._log("SUCCESS", f"✓ {mensaje} al portapapeles")
+
+    def _exportar_log(self):
+        """
+        Exporta el contenido del log en vivo a un archivo .txt
+        y los archivos JSON de logs del día como resumen en .md.
+        """
+        import json as _json
+        from datetime import datetime
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        carpeta = BASE_DIR / "logs"
+        carpeta.mkdir(exist_ok=True)
+
+        # 1. Exportar log en vivo de la GUI → .txt
+        txt_path = carpeta / f"session_{ts}.txt"
+        log_texto = self._txt.get("0.0", "end").strip()
+        txt_path.write_text(log_texto, encoding="utf-8")
+
+        # 2. Leer el JSON del día y generar resumen .md
+        import time as _time
+        hoy = _time.strftime("%Y-%m-%d")
+        json_path = carpeta / f"hub_{hoy}.json"
+
+        md_path = carpeta / f"resumen_{ts}.md"
+        lineas_md = [
+            f"# Resumen de actividad — {hoy}",
+            f"Exportado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+        ]
+
+        if json_path.exists():
+            lotes = {}
+            despachos = []
+            errores = []
+            try:
+                with open(json_path, encoding="utf-8") as f:
+                    for linea in f:
+                        linea = linea.strip()
+                        if not linea:
+                            continue
+                        try:
+                            ev = _json.loads(linea)
+                            tipo = ev.get("tipo", "")
+                            if tipo == "ingesta_lote":
+                                prv = ev.get("proveedor", "?")
+                                lotes[prv] = lotes.get(prv, 0) + ev.get("cantidad_total", 0)
+                            elif tipo == "despacho":
+                                despachos.append(ev)
+                            elif tipo == "error":
+                                errores.append(ev)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Sección ingesta
+            lineas_md.append("## Registros ingestados por proveedor")
+            if lotes:
+                for prv, total in sorted(lotes.items()):
+                    lineas_md.append(f"- **{prv}**: {total:,} registros")
+            else:
+                lineas_md.append("- Sin datos")
+            lineas_md.append("")
+
+            # Sección despacho
+            lineas_md.append("## Despachos a destinos")
+            if despachos:
+                ok_rc = sum(1 for d in despachos if d.get("destino") == "recurso_confiable" and d.get("resultado") == "exitoso")
+                fail_rc = sum(1 for d in despachos if d.get("destino") == "recurso_confiable" and d.get("resultado") != "exitoso")
+                ok_si = sum(1 for d in despachos if d.get("destino") == "simon" and d.get("resultado") == "exitoso")
+                fail_si = sum(1 for d in despachos if d.get("destino") == "simon" and d.get("resultado") != "exitoso")
+                if ok_rc + fail_rc > 0:
+                    lineas_md.append(f"- **Recurso Confiable**: {ok_rc} exitosos / {fail_rc} fallidos")
+                if ok_si + fail_si > 0:
+                    lineas_md.append(f"- **Simon 4.0**: {ok_si} exitosos / {fail_si} fallidos")
+            else:
+                lineas_md.append("- Sin despachos registrados")
+            lineas_md.append("")
+
+            # Sección errores
+            if errores:
+                lineas_md.append("## Errores")
+                for e in errores[-10:]:  # últimos 10
+                    lineas_md.append(f"- `{e.get('etapa', '?')}` — {e.get('mensaje', '?')[:80]}")
+                lineas_md.append("")
+        else:
+            lineas_md.append("*Sin archivo de log JSON para hoy.*")
+            lineas_md.append("")
+
+        lineas_md.append("---")
+        lineas_md.append(f"*Log de sesión exportado a: `{txt_path.name}`*")
+
+        md_path.write_text("\n".join(lineas_md), encoding="utf-8")
+
+        self._log("SUCCESS",
+                  f"✓ Exportado → {txt_path.name} + {md_path.name} en logs/")
+
+        # Abrir la carpeta
+        try:
+            import subprocess as _sp
+            _sp.Popen(["explorer", str(carpeta)])
+        except Exception:
+            pass
+
+    def _copiar_endpoint_ngrok(self):
+        """Copia la URL pública ngrok completa al portapapeles."""
+        url = getattr(self, "_ngrok_url", "")
+        if url:
+            texto = f"{url}/ingresar/{{nombre}}"
+            self.clipboard_clear()
+            self.clipboard_append(texto)
+            self._log("SUCCESS", f"✓ URL ngrok copiada: {texto}")
+            if hasattr(self, "_btn_copiar_ngrok_ep"):
+                self._btn_copiar_ngrok_ep.configure(text="✓ Copiado", text_color=C_VERDE)
+                self.after(2000, lambda: self._btn_copiar_ngrok_ep.configure(
+                    text="📋 Copiar", text_color=C_GRAD3))
+        else:
+            self._log("WARNING", "ngrok no está activo — inicialo primero")
+
+    def _copiar_token_ingest(self):
+        """Copia HUB_INGEST_TOKEN del .env al portapapeles."""
+        token = leer_env().get("HUB_INGEST_TOKEN", "").strip()
+        if token:
+            self.clipboard_clear()
+            self.clipboard_append(token)
+            self._log("SUCCESS", "✓ Token copiado al portapapeles")
+        else:
+            self._log("WARNING", "HUB_INGEST_TOKEN está vacío — sin autenticación configurada")
+
+    def _abrir_logs(self):
+        """
+        Abre la carpeta de logs en el explorador de Windows.
+        Si no existe, la crea primero. Si hay logs, abre el más reciente.
+        """
+        import subprocess as _sp
+        carpeta_logs = BASE_DIR / "logs"
+        carpeta_logs.mkdir(exist_ok=True)
+
+        # Buscar el archivo de log más reciente
+        logs = sorted(carpeta_logs.glob("hub_*.json"), reverse=True)
+        if logs:
+            # Abrir el archivo más reciente con el programa predeterminado
+            # (Notepad, VS Code, etc.)
+            try:
+                os.startfile(str(logs[0]))
+                return
+            except Exception:
+                pass
+
+        # Si no hay logs o falla, abrir la carpeta
+        try:
+            _sp.Popen(["explorer", str(carpeta_logs)])
+        except Exception:
+            self._log("WARNING", f"Logs en: {carpeta_logs}")
 
     def _ciclo_ngrok(self):
         """
@@ -1273,22 +1612,46 @@ class HubApp(ctk.CTk):
             self.after(0, self._ocultar_ngrok)
 
     def _mostrar_ngrok(self, url: str, endpoint: str):
-        """Actualiza el panel ngrok con la URL activa."""
-        # Mostrar solo el host para no truncar
+        """Actualiza el panel ngrok con la URL activa y sincroniza el endpoint en Config."""
         host = url.replace("https://", "").replace("http://", "")
-        self._lbl_ngrok.configure(
-            text=host,
-            text_color=C_VERDE,
-        )
+        self._lbl_ngrok.configure(text=host, text_color=C_VERDE)
         self._lbl_ngrok_hint.configure(
-            text="Click para copiar URL completa",
-            text_color=C_APAGADO,
-        )
+            text="Click para copiar  ·  /ingresar/{proveedor}",
+            text_color=C_APAGADO)
+        if hasattr(self, "_lbl_endpoint_ngrok"):
+            self._lbl_endpoint_ngrok.configure(
+                text=f"POST  {url}/ingresar/{{nombre}}",
+                text_color=C_VERDE)
+        if hasattr(self, "_btn_copiar_ngrok_ep"):
+            self._btn_copiar_ngrok_ep.configure(text_color=C_VERDE)
 
     def _ocultar_ngrok(self):
-        """Muestra 'No detectado' cuando ngrok no está corriendo."""
-        self._lbl_ngrok.configure(text="No detectado", text_color=C_APAGADO)
-        self._lbl_ngrok_hint.configure(text="Ejecutar: ngrok http 8000", text_color=C_APAGADO)
+        """
+        Muestra 'No activo' cuando ngrok no está corriendo.
+        Si el proceso terminó inesperadamente, resetea el botón a ▶ Iniciar.
+        """
+        self._lbl_ngrok.configure(text="No activo", text_color=C_APAGADO)
+        self._lbl_ngrok_hint.configure(text="", text_color=C_APAGADO)
+        if hasattr(self, "_lbl_endpoint_ngrok"):
+            self._lbl_endpoint_ngrok.configure(
+                text="POST  https://[ngrok-url]/ingresar/{nombre_proveedor}",
+                text_color=C_APAGADO,
+            )
+        # Si el proceso no está corriendo (terminó o nunca se inició),
+        # resetear el botón a ▶ Iniciar
+        proceso_vivo = (
+            self._proceso_ngrok is not None and
+            self._proceso_ngrok.poll() is None
+        )
+        if not proceso_vivo:
+            self._proceso_ngrok = None
+            if hasattr(self, "_btn_ngrok"):
+                self._btn_ngrok.configure(
+                    text="▶ Iniciar",
+                    fg_color=C_GRAD2,
+                    hover_color=C_GRAD3,
+                    text_color=C_BG_TOP,
+                )
 
     def _ciclo_uptime(self):
         """Actualiza el label de uptime cada segundo mientras el Hub está corriendo."""
@@ -1304,6 +1667,8 @@ class HubApp(ctk.CTk):
         else:
             texto = f"↑ {s}s corriendo"
         self._lbl_uptime.configure(text=texto, text_color=C_VERDE)
+        if hasattr(self, "_lbl_uptime_monitor"):
+            self._lbl_uptime_monitor.configure(text=f"— {texto}")
         self.after(1000, self._ciclo_uptime)
 
     def _actualizar_metricas(self):
@@ -1338,6 +1703,8 @@ class HubApp(ctk.CTk):
     # ------------------------------------------------------------------ #
 
     def _al_cerrar(self):
+        if self._proceso_ngrok and self._proceso_ngrok.poll() is None:
+            self._proceso_ngrok.terminate()
         if _servidor.en_ejecucion:
             _servidor.detener()
         self.destroy()
